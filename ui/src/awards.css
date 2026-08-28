@@ -1,0 +1,55 @@
+/* Stash Awards plugin UI. Kept deliberately small; colours follow stash's
+   Bootstrap theme via variant classes, so only layout needs styling here. */
+
+.awards-page {
+  margin: 0 auto;
+  padding: 1rem 1.5rem;
+}
+
+.awards-header {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.awards-title {
+  margin: 0;
+}
+
+.awards-total {
+  color: var(--text-muted, #9ba4ad);
+  margin-left: auto;
+}
+
+.awards-group {
+  margin-bottom: 1rem;
+}
+
+.awards-row {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.15rem 0;
+}
+
+.awards-year {
+  display: inline-block;
+  min-width: 3.5rem;
+}
+
+.awards-source-actions {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.awards-last-updated {
+  color: var(--text-muted, #9ba4ad);
+  margin-top: 0.75rem;
+}
+
+.awards-nav-button {
+  margin-left: 0.25rem;
+}
