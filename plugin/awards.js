@@ -78,6 +78,7 @@
         return new URL(url, award.sourceUrl).toString();
       } catch {
       }
+      return null;
     }
     return url.startsWith("/") ? url : null;
   }

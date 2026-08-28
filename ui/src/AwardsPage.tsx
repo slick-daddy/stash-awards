@@ -43,9 +43,11 @@ function movieUrl(award: Award): string | null {
     try {
       return new URL(url, award.sourceUrl).toString();
     } catch {
-      // fall through
+      // invalid base — cannot resolve, hide link instead of broken relative
     }
+    return null;
   }
+  // No base: only root-relative paths are safe to keep as-is.
   return url.startsWith("/") ? url : null;
 }
 
