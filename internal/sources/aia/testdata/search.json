@@ -1,0 +1,26 @@
+[
+  {
+    "id": 30328,
+    "slug": "someone-else",
+    "link": "https://adultindustryawards.com/someone-else/",
+    "title": { "rendered": "Someone Else" }
+  },
+  {
+    "id": 28122,
+    "slug": "test-performer-jr",
+    "link": "https://adultindustryawards.com/test-performer-jr/",
+    "title": { "rendered": "Test Performer Jr" }
+  },
+  {
+    "id": 27955,
+    "slug": "unrelated-page",
+    "link": "https://adultindustryawards.com/unrelated-page/",
+    "title": { "rendered": "Unrelated Page" }
+  },
+  {
+    "id": 26705,
+    "slug": "test-performer",
+    "link": "https://adultindustryawards.com/test-performer/",
+    "title": { "rendered": "Test Performer" }
+  }
+]
