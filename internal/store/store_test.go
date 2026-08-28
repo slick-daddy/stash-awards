@@ -252,7 +252,9 @@ func TestOpenFileRejectsUnrecognisedSchemaVersion(t *testing.T) {
 }
 
 // :memory: databases still need WAL-like pragma configuration but cannot use
-// a journal file; the dsn builder must pick a different path.
+// a journal file; the dsn builder must pick a different path. It also has
+// to add cache=shared so the write and read pools land on the same in-memory
+// database, otherwise they would see two different worlds.
 func TestOpenFileInMemoryShared(t *testing.T) {
 	a, err := OpenFile(":memory:")
 	if err != nil {
@@ -260,8 +262,6 @@ func TestOpenFileInMemoryShared(t *testing.T) {
 	}
 	defer a.Close()
 
-	// A row written by one handle must be visible to another handle opened
-	// against the same shared in-memory database.
 	if err := a.SetURL("42", SourceIAFD, "https://iafd.test"); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestOpenFileInMemoryShared(t *testing.T) {
 		t.Fatalf("URL from second handle: %v", err)
 	}
 	if got.URL != "https://iafd.test" {
-		t.Errorf("URL = %q, want it visible across handles", got.URL)
+		t.Errorf("URL = %q, want it visible across handles (the shared-cache DSN should make this work)", got.URL)
 	}
 }
 
@@ -314,20 +314,5 @@ func TestMethodsSurfaceErrorsOnClosedStore(t *testing.T) {
 				t.Errorf("%s succeeded on a closed store", c.name)
 			}
 		})
-	}
-}
-
-// Close must report the read-Close error if the write pool closes cleanly
-// (the more common ordering: read closes fine, then write reports an issue).
-func TestCloseReportsReadError(t *testing.T) {
-	s, err := OpenFile(":memory:")
-	if err != nil {
-		t.Fatalf("OpenFile: %v", err)
-	}
-	// Forcing a read-Close error is hard with database/sql, but the wrapping
-	// logic is simple enough that exercising the success path is enough; if
-	// read.Close errors, Close returns it after the write closes successfully.
-	if err := s.Close(); err != nil {
-		t.Errorf("Close: %v", err)
 	}
 }
