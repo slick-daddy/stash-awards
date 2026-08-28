@@ -272,43 +272,47 @@
       /* @__PURE__ */ React.createElement(FontAwesomeIcon, { icon: FontAwesomeSolid.faTrophy })
     );
   }
-  function isAwardsNavbar(el) {
-    var _a11;
-    const className = (_a11 = el == null ? void 0 : el.props) == null ? void 0 : _a11.className;
-    if (typeof className !== "string") return false;
-    const hasDetailsEdit = className.includes("details-edit");
-    if (!hasDetailsEdit) return false;
-    return className.includes("mb-2") || hasDetailsEdit;
+  function getPerformerId(props) {
+    var _a11, _b7, _c2, _d, _e;
+    const fromProps = (_e = (_d = (_a11 = props == null ? void 0 : props.performer) == null ? void 0 : _a11.id) != null ? _d : (_c2 = (_b7 = props == null ? void 0 : props.match) == null ? void 0 : _b7.params) == null ? void 0 : _c2.id) != null ? _e : props == null ? void 0 : props.id;
+    if (fromProps) return fromProps;
+    const m = /\/performers?\/([^/?#]+)/.exec(window.location.pathname);
+    return m == null ? void 0 : m[1];
+  }
+  function isButton(el) {
+    if (!React.isValidElement(el)) return false;
+    return el.type === Button2 || typeof el.type === "string" && el.type === "button";
+  }
+  function alreadyAdded(children) {
+    return children.some(
+      (c) => {
+        var _a11, _b7, _c2;
+        return (_c2 = (_b7 = (_a11 = c == null ? void 0 : c.props) == null ? void 0 : _a11.className) == null ? void 0 : _b7.includes) == null ? void 0 : _c2.call(_b7, "awards-nav-button");
+      }
+    );
   }
   function inject(node, performerId) {
     var _a11;
-    if (Array.isArray(node)) return node.map((child) => inject(child, performerId));
+    if (Array.isArray(node)) return node.map((c) => inject(c, performerId));
     if (!React.isValidElement(node)) return node;
     const el = node;
-    if (isAwardsNavbar(el)) {
-      const children2 = React.Children.toArray(el.props.children);
-      const already = children2.some(
-        (c) => {
-          var _a12, _b7, _c2;
-          return (c == null ? void 0 : c.key) === "awards-button" || ((_c2 = (_b7 = (_a12 = c == null ? void 0 : c.props) == null ? void 0 : _a12.className) == null ? void 0 : _b7.includes) == null ? void 0 : _c2.call(_b7, "awards-nav-button"));
-        }
-      );
-      if (already) return el;
+    const children = (_a11 = el.props) == null ? void 0 : _a11.children;
+    if (children == null || typeof children === "function") return el;
+    const childArr = React.Children.toArray(children);
+    if (childArr.some(isButton)) {
+      if (alreadyAdded(childArr)) return el;
       return React.cloneElement(
         el,
         {},
-        ...children2,
+        ...childArr,
         React.createElement(AwardsNavButton, { key: "awards-button", performerId })
       );
     }
-    const children = (_a11 = el.props) == null ? void 0 : _a11.children;
-    if (children == null || typeof children === "function") return el;
     return React.cloneElement(el, {}, inject(children, performerId));
   }
   function injectAwardsButton(props, result) {
-    var _a11;
     try {
-      const performerId = (_a11 = props == null ? void 0 : props.performer) == null ? void 0 : _a11.id;
+      const performerId = getPerformerId(props);
       if (!performerId || !result) return result;
       return inject(result, performerId);
     } catch (err) {
