@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -245,5 +246,127 @@ func TestSourceValidation(t *testing.T) {
 	}
 	if SourceAIA.Label() != "AdultIndustryAwards" {
 		t.Errorf("aia label = %q", SourceAIA.Label())
+	}
+	// An unknown source falls back to its raw string rather than blank.
+	if got := Source("x").Label(); got != "x" {
+		t.Errorf("unknown label = %q, want the raw string", got)
+	}
+}
+
+// ForgetSource clears awards, URLs and sync state for one source but must
+// leave a different source's records alone.
+func TestForgetSourceClearsOnlyThatSource(t *testing.T) {
+	s := newStore(t)
+	if err := s.ReplaceAwards("42", SourceIAFD, []Award{
+		{Organization: "AVN", AwardName: "Best New Starlet", Year: 2015},
+	}); err != nil {
+		t.Fatalf("iafd awards: %v", err)
+	}
+	if err := s.ReplaceAwards("42", SourceAIA, []Award{
+		{Organization: "XBIZ", AwardName: "Best Actress", Year: 2016},
+	}); err != nil {
+		t.Fatalf("aia awards: %v", err)
+	}
+	if err := s.SetURL("42", SourceIAFD, "https://iafd.test"); err != nil {
+		t.Fatalf("SetURL iafd: %v", err)
+	}
+	if err := s.SetURL("42", SourceAIA, "https://aia.test"); err != nil {
+		t.Fatalf("SetURL aia: %v", err)
+	}
+	if err := s.MarkSynced("42", SourceIAFD, time.Now()); err != nil {
+		t.Fatalf("MarkSynced iafd: %v", err)
+	}
+
+	if err := s.ForgetSource("42", SourceIAFD); err != nil {
+		t.Fatalf("ForgetSource: %v", err)
+	}
+
+	if got, _ := s.AwardsBySource("42", SourceIAFD); len(got) != 0 {
+		t.Errorf("iafd awards survived: %v", got)
+	}
+	if _, err := s.URL("42", SourceIAFD); !errors.Is(err, ErrNotFound) {
+		t.Errorf("iafd url survived: %v", err)
+	}
+	if _, err := s.State("42", SourceIAFD); !errors.Is(err, ErrNotFound) {
+		t.Errorf("iafd sync state survived: %v", err)
+	}
+	if got, _ := s.AwardsBySource("42", SourceAIA); len(got) != 1 {
+		t.Errorf("aia awards lost: %v", got)
+	}
+	if _, err := s.URL("42", SourceAIA); err != nil {
+		t.Errorf("aia url lost: %v", err)
+	}
+}
+
+// ForgetSource must reject an unknown source before touching the database.
+func TestForgetSourceRejectsUnknownSource(t *testing.T) {
+	s := newStore(t)
+	if err := s.ForgetSource("42", Source("evil")); err == nil {
+		t.Fatal("ForgetSource accepted an unknown source")
+	}
+}
+
+// ForgetPerformer on a performer that has no rows must succeed and touch
+// nothing it shouldn't.
+func TestForgetPerformerOnEmptyDatabaseIsANoOp(t *testing.T) {
+	s := newStore(t)
+	if err := s.ForgetPerformer("42"); err != nil {
+		t.Errorf("ForgetPerformer: %v", err)
+	}
+}
+
+func TestNullHelpersHandleNullValues(t *testing.T) {
+	if got := num(sql.NullInt64{}); got != 0 {
+		t.Errorf("num(invalid) = %d, want 0", got)
+	}
+	if got := num(sql.NullInt64{Int64: 7, Valid: true}); got != 7 {
+		t.Errorf("num(valid) = %d, want 7", got)
+	}
+	if got := nullInt(0); got != nil {
+		t.Errorf("nullInt(0) = %v, want nil", got)
+	}
+	if got := nullInt(5); got != 5 {
+		t.Errorf("nullInt(5) = %v, want 5", got)
+	}
+}
+
+// Awards and AwardsBySource return an empty slice for a performer with no
+// rows rather than nil; the JSON serialisation is the same, but the contract
+// matters to any consumer that distinguishes.
+func TestAwardsReturnsEmptyForUnknownPerformer(t *testing.T) {
+	s := newStore(t)
+	got, err := s.Awards("nobody")
+	if err != nil {
+		t.Fatalf("Awards: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("got %v, want 0 awards", got)
+	}
+	got, err = s.AwardsBySource("nobody", SourceIAFD)
+	if err != nil {
+		t.Fatalf("AwardsBySource: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("got %v, want 0 awards", got)
+	}
+}
+
+// ReplaceAwards keeps a caller-supplied LastScraped rather than overwriting
+// it with the current time. The convenience for tests is the main reason the
+// field is exposed.
+func TestReplaceAwardsPreservesCallerSuppliedLastScraped(t *testing.T) {
+	s := newStore(t)
+	stamp := "2020-01-02T03:04:05Z"
+	if err := s.ReplaceAwards("42", SourceIAFD, []Award{
+		{Organization: "AVN", AwardName: "Best New Starlet", Year: 2015, LastScraped: stamp},
+	}); err != nil {
+		t.Fatalf("ReplaceAwards: %v", err)
+	}
+	got, err := s.Awards("42")
+	if err != nil {
+		t.Fatalf("Awards: %v", err)
+	}
+	if got[0].LastScraped != stamp {
+		t.Errorf("last_scraped = %q, want the caller-supplied %q", got[0].LastScraped, stamp)
 	}
 }
