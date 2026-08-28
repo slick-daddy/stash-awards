@@ -167,6 +167,41 @@ func TestGetAwardsWarnsButStillReturnsStoredAwards(t *testing.T) {
 	}
 }
 
+// When every source is fresh, sync=true reports a skip and avoids the
+// network entirely. AIA is disabled so the test does not scrape it.
+func TestGetAwardsSkipsWhenEverySourceIsFresh(t *testing.T) {
+	stub := newStashStub(t)
+	dir := t.TempDir()
+	stub.performers["7"] = stubPerformer{ID: "7", Name: "Test Performer"}
+	stub.settings = map[string]interface{}{config.KeyAIAEnabled: false}
+	withStore(t, dir, func(db *store.Store) {
+		if err := db.ReplaceAwards("7", store.SourceIAFD, []store.Award{award(store.SourceIAFD, "Best Actress", 2021)}); err != nil {
+			t.Fatalf("replace awards: %v", err)
+		}
+		// A future NextSyncAfter makes the data "fresh", so SyncPerformer
+		// should report StatusSkipped rather than scrape.
+		if err := db.MarkSynced("7", store.SourceIAFD, time.Now().Add(24*time.Hour)); err != nil {
+			t.Fatalf("mark synced: %v", err)
+		}
+	})
+
+	out, err := stub.dispatch(dir, protocol.Args{"mode": ModeGetAwards, "performerId": "7", "sync": true, "force": false})
+	if err != nil {
+		t.Fatalf("getAwards: %v", err)
+	}
+	payload := out.(AwardsPayload)
+	if payload.Total != 1 {
+		t.Fatalf("stored awards were dropped: %+v", payload)
+	}
+	if payload.Warning != "" {
+		t.Errorf("unexpected warning: %q", payload.Warning)
+	}
+	// Skipped is the status that proves no scrape happened.
+	if len(payload.Synced) == 0 || payload.Synced[0].Status != "skipped" {
+		t.Errorf("expected a skipped sync, got %+v", payload.Synced)
+	}
+}
+
 // A performer id is the one argument every performer operation needs.
 func TestPerformerOperationsRequireAnID(t *testing.T) {
 	stub := newStashStub(t)
@@ -426,4 +461,119 @@ func TestHookPerformerID(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Sync with an unknown source must fail validation before any network work.
+func TestSyncWithUnknownSourceIsRejected(t *testing.T) {
+	stub := newStashStub(t)
+	dir := t.TempDir()
+	stub.performers["7"] = stubPerformer{ID: "7", Name: "Angela"}
+	if _, err := stub.dispatch(dir, protocol.Args{
+		"mode": ModeSync, "performerId": "7", "source": "wikipedia",
+	}); err == nil || !strings.Contains(err.Error(), "unknown source") {
+		t.Fatalf("want an unknown source error, got %v", err)
+	}
+}
+
+// search needs either a name or a performer id; supplying neither is a 400.
+func TestSearchRequiresNameOrPerformerID(t *testing.T) {
+	stub := newStashStub(t)
+	dir := t.TempDir()
+	if _, err := stub.dispatch(dir, protocol.Args{
+		"mode": ModeSearch, "source": string(store.SourceAIA),
+	}); err == nil || !strings.Contains(err.Error(), "name or a performerId") {
+		t.Fatalf("want a missing-argument error, got %v", err)
+	}
+}
+
+// link rejects an empty URL before going to the network.
+func TestLinkRejectsEmptyURL(t *testing.T) {
+	stub := newStashStub(t)
+	dir := t.TempDir()
+	if _, err := stub.dispatch(dir, protocol.Args{
+		"mode": ModeLink, "performerId": "7", "source": string(store.SourceAIA), "url": "  ",
+	}); err == nil || !strings.Contains(err.Error(), "url") {
+		t.Fatalf("want a missing-url error, got %v", err)
+	}
+}
+
+// link requires a performer id like the other performer-scoped modes.
+func TestLinkRejectsMissingPerformerID(t *testing.T) {
+	stub := newStashStub(t)
+	dir := t.TempDir()
+	if _, err := stub.dispatch(dir, protocol.Args{
+		"mode": ModeLink, "source": string(store.SourceAIA), "url": "https://aia.test/x",
+	}); err == nil || !strings.Contains(err.Error(), "performerId") {
+		t.Fatalf("want a missing-id error, got %v", err)
+	}
+}
+
+// link with an unrecognised URL must fail before reaching the network.
+func TestLinkRejectsUnrecognisedURL(t *testing.T) {
+	stub := newStashStub(t)
+	dir := t.TempDir()
+	stub.performers["7"] = stubPerformer{ID: "7", Name: "Angela"}
+	if _, err := stub.dispatch(dir, protocol.Args{
+		"mode": ModeLink, "performerId": "7", "source": string(store.SourceAIA),
+		"url": "https://example.com/whoever",
+	}); err == nil || !strings.Contains(err.Error(), "not a") {
+		t.Fatalf("want an unrecognised-url error, got %v", err)
+	}
+}
+
+// syncDue with no work to do must still return a payload (not nil).
+func TestSyncDueWithNoWorkReturnsAnEmptySummary(t *testing.T) {
+	stub := newStashStub(t)
+	dir := t.TempDir()
+	out, err := stub.dispatch(dir, protocol.Args{"mode": ModeSyncDue, "limit": 1})
+	if err != nil {
+		t.Fatalf("syncDue: %v", err)
+	}
+	payload, ok := out.(BatchPayload)
+	if !ok {
+		t.Fatalf("syncDue returned %T", out)
+	}
+	if payload.Performers != 0 || len(payload.Results) != 0 {
+		t.Errorf("expected an empty run: %+v", payload)
+	}
+}
+
+// syncAll walks the library. With an empty store it is a no-op.
+func TestSyncAllOnAnEmptyStoreIsANoOp(t *testing.T) {
+	stub := newStashStub(t)
+	dir := t.TempDir()
+	out, err := stub.dispatch(dir, protocol.Args{"mode": ModeSyncAll})
+	if err != nil {
+		t.Fatalf("syncAll: %v", err)
+	}
+	payload, ok := out.(BatchPayload)
+	if !ok {
+		t.Fatalf("syncAll returned %T", out)
+	}
+	if payload.Performers != 0 {
+		t.Errorf("expected no performers, got %+v", payload)
+	}
+}
+
+// forget with a plain argument (no hook context) uses the argument.
+func TestForgetPerformerReadsThePlainArgument(t *testing.T) {
+	stub := newStashStub(t)
+	dir := t.TempDir()
+	withStore(t, dir, func(db *store.Store) {
+		if err := db.SetURL("7", store.SourceIAFD, "https://iafd.test/page"); err != nil {
+			t.Fatalf("set url: %v", err)
+		}
+	})
+	out, err := stub.dispatch(dir, protocol.Args{"mode": ModeForget, "performerId": "7"})
+	if err != nil {
+		t.Fatalf("forget: %v", err)
+	}
+	if m, ok := out.(map[string]interface{}); !ok || m["performerId"] != "7" {
+		t.Fatalf("forget returned %v", out)
+	}
+	withStore(t, dir, func(db *store.Store) {
+		if _, err := db.URL("7", store.SourceIAFD); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("forget did not clear the url: %v", err)
+		}
+	})
 }
