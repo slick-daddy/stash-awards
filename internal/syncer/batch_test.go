@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/slick-daddy/stash-awards/internal/config"
+	"github.com/slick-daddy/stash-awards/internal/sources"
 	"github.com/slick-daddy/stash-awards/internal/stashapi"
 	"github.com/slick-daddy/stash-awards/internal/store"
 )
@@ -121,16 +122,6 @@ func TestSyncAllSkipsWhatIsAlreadyFresh(t *testing.T) {
 	}
 }
 
-func TestSyncAllRefusesToRunWithNoSources(t *testing.T) {
-	settings := iafdOnly()
-	settings.IAFDEnabled = false
-	h := newHarness(t, settings, performer("1", "Angela Test"))
-
-	if _, err := h.SyncAll(context.Background(), false); err == nil {
-		t.Fatal("SyncAll succeeded with every source disabled")
-	}
-}
-
 func TestSyncAllStopsWhenCancelled(t *testing.T) {
 	h := newHarness(t, iafdOnly(), performer("1", "Angela Test"))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -138,6 +129,50 @@ func TestSyncAllStopsWhenCancelled(t *testing.T) {
 
 	if _, err := h.SyncAll(ctx, false); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+}
+
+// A pause that fails must stop the whole-library walk rather than silently
+// continuing.
+func TestSyncAllStopsOnAPauseFailure(t *testing.T) {
+	settings := config.Default()
+	all := make([]stashapi.Performer, 0, BatchSize+1)
+	for i := 0; i <= BatchSize; i++ {
+		id := fmt.Sprint(i)
+		var url string
+		if i%2 == 0 {
+			url = "https://iafd.test/person/" + id
+		} else {
+			url = "https://aia.test/p" + id + "/"
+		}
+		all = append(all, performer(id, "P"+id, url))
+	}
+	h := newHarness(t, settings, all...)
+	// Two full pages force a pause between them.
+	h.stash.pages = [][]stashapi.Performer{all[:BatchSize], all[BatchSize:]}
+	for i, p := range all {
+		if i%2 == 0 {
+			h.iafd.pages[p.URLs[0]] = []store.Award{award("AVN", "A", 2019)}
+		} else {
+			h.aia.pages[p.URLs[0]] = []store.Award{award("XBIZ", "B", 2020)}
+		}
+	}
+	h.Syncer.sleep = func(context.Context, time.Duration) error { return errors.New("sleeper is down") }
+
+	if _, err := h.SyncAll(context.Background(), false); err == nil {
+		t.Fatal("SyncAll did not surface the pause failure")
+	}
+}
+
+// SyncAll returns a "no sources" error rather than a silent no-op, so a
+// misconfigured plugin does not pretend to be working.
+func TestSyncAllRefusesToRunWithNoSources(t *testing.T) {
+	settings := iafdOnly()
+	settings.IAFDEnabled = false
+	h := newHarness(t, settings, performer("1", "Angela Test"))
+
+	if _, err := h.SyncAll(context.Background(), false); err == nil {
+		t.Fatal("SyncAll succeeded with every source disabled")
 	}
 }
 
@@ -213,5 +248,123 @@ func TestUnlinkLeavesTheOtherSourceAlone(t *testing.T) {
 	awards, err := h.store.AwardsBySource("1", store.SourceAIA)
 	if err != nil || len(awards) != 1 {
 		t.Errorf("aia awards = %d, %v; want 1 left alone", len(awards), err)
+	}
+}
+
+// add must increment the right counter for each status, and must leave the
+// summary alone for statuses it does not know about.
+func TestBatchSummaryCounters(t *testing.T) {
+	cases := []struct {
+		status Status
+		field  string
+	}{
+		{StatusSynced, "Synced"},
+		{StatusSkipped, "Skipped"},
+		{StatusFailed, "Failed"},
+		{StatusUnresolved, "Unresolved"},
+		{StatusAmbiguous, "Ambiguous"},
+		{StatusDisabled, ""}, // not counted
+	}
+	for _, c := range cases {
+		var b BatchSummary
+		b.add(Result{Status: c.status})
+		switch c.field {
+		case "Synced":
+			if b.Synced != 1 {
+				t.Errorf("add(%s): Synced = %d, want 1", c.status, b.Synced)
+			}
+		case "Skipped":
+			if b.Skipped != 1 {
+				t.Errorf("add(%s): Skipped = %d, want 1", c.status, b.Skipped)
+			}
+		case "Failed":
+			if b.Failed != 1 {
+				t.Errorf("add(%s): Failed = %d, want 1", c.status, b.Failed)
+			}
+		case "Unresolved":
+			if b.Unresolved != 1 {
+				t.Errorf("add(%s): Unresolved = %d, want 1", c.status, b.Unresolved)
+			}
+		case "Ambiguous":
+			if b.Ambiguous != 1 {
+				t.Errorf("add(%s): Ambiguous = %d, want 1", c.status, b.Ambiguous)
+			}
+		case "":
+			if b.Synced|b.Skipped|b.Failed|b.Unresolved|b.Ambiguous != 0 {
+				t.Errorf("add(%s) incremented some counter: %+v", c.status, b)
+			}
+		}
+	}
+}
+
+// A SyncDue run with limit <= 0 must use the default batch size rather than
+// asking the database for zero rows.
+func TestSyncDueDefaultsTheLimit(t *testing.T) {
+	h := newHarness(t, iafdOnly(), performer("1", "Due Performer", "https://iafd.test/person/due"))
+	h.iafd.pages["https://iafd.test/person/due"] = []store.Award{award("AVN", "Best Actress", 2019)}
+	if err := h.store.MarkSynced("1", store.SourceIAFD, fixedNow.Add(-time.Hour)); err != nil {
+		t.Fatalf("mark due: %v", err)
+	}
+	// limit=0 falls back to the default and finds the one due row.
+	summary, err := h.SyncDue(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("SyncDue: %v", err)
+	}
+	if summary.Performers != 1 {
+		t.Errorf("summary = %+v, want the one due row processed", summary)
+	}
+}
+
+// A SyncDue run that hits a cancelled context stops immediately, leaving the
+// already-counted rows in the summary.
+func TestSyncDueStopsWhenCancelled(t *testing.T) {
+	h := newHarness(t, iafdOnly())
+	for i := 0; i < 3; i++ {
+		if err := h.store.MarkSynced(fmt.Sprint(i), store.SourceIAFD, fixedNow.Add(-time.Hour)); err != nil {
+			t.Fatalf("mark %d: %v", i, err)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := h.SyncDue(ctx, 50); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+}
+
+// recordNoPage must classify ambiguous and unresolved outcomes correctly so
+// the UI can tell them apart.
+func TestRecordNoPageDistinguishesAmbiguousAndUnresolved(t *testing.T) {
+	h := newHarness(t, iafdOnly())
+	res, err := h.recordNoPage("1", store.SourceIAFD, []sources.Match{
+		{Name: "Angela Testing", URL: "https://iafd.test/person/a"},
+		{Name: "Angie Test", URL: "https://iafd.test/person/b"},
+	})
+	if err != nil {
+		t.Fatalf("recordNoPage: %v", err)
+	}
+	if res.Status != StatusAmbiguous || len(res.Candidates) != 2 {
+		t.Errorf("result = %+v, want an ambiguous outcome", res)
+	}
+
+	res, err = h.recordNoPage("2", store.SourceIAFD, nil)
+	if err != nil {
+		t.Fatalf("recordNoPage unresolved: %v", err)
+	}
+	if res.Status != StatusUnresolved || res.Message == "" {
+		t.Errorf("result = %+v, want an unresolved outcome", res)
+	}
+}
+
+// recordFailure must surface the cause and schedule a retry, so the UI can
+// show what went wrong without losing the performer's place in the schedule.
+func TestRecordFailureStoresTheCause(t *testing.T) {
+	h := newHarness(t, iafdOnly())
+	cause := errors.New("upstream timeout")
+	res, err := h.recordFailure("1", store.SourceIAFD, "https://iafd.test/person/a", OriginSearch, cause)
+	if err != nil {
+		t.Fatalf("recordFailure: %v", err)
+	}
+	if res.Status != StatusFailed || res.Message != "upstream timeout" {
+		t.Errorf("result = %+v, want the cause surfaced", res)
 	}
 }

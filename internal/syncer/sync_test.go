@@ -3,9 +3,11 @@ package syncer
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/slick-daddy/stash-awards/internal/config"
 	"github.com/slick-daddy/stash-awards/internal/sources"
 	"github.com/slick-daddy/stash-awards/internal/stashapi"
 	"github.com/slick-daddy/stash-awards/internal/store"
@@ -270,5 +272,257 @@ func TestNormaliseNameIgnoresPunctuationAndSpacing(t *testing.T) {
 	}
 	if normaliseName("Angela Test") == normaliseName("Angela Testing") {
 		t.Error("distinct names normalised to the same value")
+	}
+}
+
+// Search passes through to the provider; an unknown source surfaces the
+// same error the provider would, before the provider is even consulted.
+func TestSearchDelegatesToTheProvider(t *testing.T) {
+	h := newHarness(t, iafdOnly())
+	h.iafd.matches = []sources.Match{{Name: "Angela", URL: "https://iafd.test/person/a"}}
+
+	matches, err := h.Search(context.Background(), store.SourceIAFD, "Angela")
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(matches) != 1 || matches[0].Name != "Angela" {
+		t.Errorf("matches = %+v", matches)
+	}
+}
+
+func TestSearchRejectsAnUnknownSource(t *testing.T) {
+	h := newHarness(t, iafdOnly())
+	if _, err := h.Search(context.Background(), store.Source("bogus"), "Angela"); err == nil {
+		t.Fatal("Search accepted an unknown source")
+	}
+}
+
+func TestProviderReportsEnabledAndKnown(t *testing.T) {
+	h := newHarness(t, iafdOnly())
+	if _, ok := h.Provider(store.SourceIAFD); !ok {
+		t.Error("IAFD provider should be known and enabled")
+	}
+	if _, ok := h.Provider(store.Source("nope")); ok {
+		t.Error("an unknown source reported a provider")
+	}
+}
+
+func TestProviderRejectsADisabledSource(t *testing.T) {
+	settings := iafdOnly()
+	settings.IAFDEnabled = false
+	h := newHarness(t, settings)
+	if _, ok := h.Provider(store.SourceIAFD); ok {
+		t.Error("a disabled source reported a provider")
+	}
+}
+
+// sleepCtx is the production default and must be exercised directly.
+func TestSleepCtxRespectsZeroAndCancellation(t *testing.T) {
+	if err := sleepCtx(context.Background(), 0); err != nil {
+		t.Errorf("zero duration err = %v, want nil", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := sleepCtx(ctx, time.Second); !errors.Is(err, context.Canceled) {
+		t.Errorf("cancelled ctx err = %v, want context.Canceled", err)
+	}
+	if err := sleepCtx(context.Background(), time.Millisecond); err != nil {
+		t.Errorf("positive duration err = %v, want nil", err)
+	}
+}
+
+// New must apply sensible defaults when the caller does not supply them.
+func TestNewAppliesDefaults(t *testing.T) {
+	s := New(Deps{Log: nil})
+	if s.log == nil {
+		t.Error("Log defaulted to nil")
+	}
+	if s.now == nil {
+		t.Error("Now defaulted to nil")
+	}
+	if s.sleep == nil {
+		t.Error("Sleep defaulted to nil")
+	}
+}
+
+// A sync with a forced re-fetch must clear the freshness check and re-read
+// the page.
+func TestSyncSourceForcesARefetch(t *testing.T) {
+	page := "https://iafd.test/person/angela"
+	h := newHarness(t, iafdOnly(), performer("1", "Angela Test", page))
+	h.iafd.pages[page] = []store.Award{award("AVN", "Best Actress", 2019)}
+
+	if _, err := h.SyncPerformerID(context.Background(), "1", false); err != nil {
+		t.Fatalf("first sync: %v", err)
+	}
+	// Re-same call must skip the network.
+	if _, err := h.SyncPerformerID(context.Background(), "1", false); err != nil {
+		t.Fatalf("second sync: %v", err)
+	}
+	if len(h.iafd.fetched) != 1 {
+		t.Fatalf("fetched %d times, want 1 (the second sync should skip)", len(h.iafd.fetched))
+	}
+	if _, err := h.SyncPerformerID(context.Background(), "1", true); err != nil {
+		t.Fatalf("forced sync: %v", err)
+	}
+	if len(h.iafd.fetched) != 2 {
+		t.Errorf("forced sync fetched %d times, want 2", len(h.iafd.fetched))
+	}
+}
+
+// isFresh on a missing performer must return false rather than an error: the
+// "no row yet" case is the common path on a fresh install.
+func TestIsFreshReportsMissingAsStale(t *testing.T) {
+	h := newHarness(t, iafdOnly())
+	fresh, err := h.isFresh("nobody", store.SourceIAFD)
+	if err != nil {
+		t.Fatalf("isFresh: %v", err)
+	}
+	if fresh {
+		t.Error("a missing row was reported as fresh")
+	}
+}
+
+// skipped must still surface the stored count and URL so the UI has something
+// to show without making another request.
+func TestSkippedReportsStoredCountsAndURL(t *testing.T) {
+	page := "https://iafd.test/person/angela"
+	h := newHarness(t, iafdOnly(), performer("1", "Angela Test", page))
+	if err := h.store.SetURL("1", store.SourceIAFD, page); err != nil {
+		t.Fatalf("SetURL: %v", err)
+	}
+	if err := h.store.ReplaceAwards("1", store.SourceIAFD, []store.Award{award("AVN", "Best Actress", 2019)}); err != nil {
+		t.Fatalf("ReplaceAwards: %v", err)
+	}
+
+	res, err := h.skipped("1", store.SourceIAFD)
+	if err != nil {
+		t.Fatalf("skipped: %v", err)
+	}
+	if res.URL != page || res.Awards != 1 {
+		t.Errorf("skipped = %+v, want url+count from the store", res)
+	}
+}
+
+// The retry interval is bounded by the package RetryInterval. SyncIntervalDays
+// has a floor of one day, so the configured interval is always at least as
+// long as RetryInterval, and the cap always wins.
+func TestRetryIntervalHonoursThePackageCap(t *testing.T) {
+	h := newHarness(t, iafdOnly())
+	h.settings.SyncIntervalDays = 1
+	if got := h.retryInterval(); got != RetryInterval {
+		t.Errorf("retry = %v, want RetryInterval %v", got, RetryInterval)
+	}
+	h.settings.SyncIntervalDays = 365 * 10
+	if got := h.retryInterval(); got != RetryInterval {
+		t.Errorf("retry = %v, want RetryInterval %v", got, RetryInterval)
+	}
+}
+
+// SyncPerformerID surfaces stash lookup failures rather than swallowing them,
+// so the UI can show a real error rather than silently skipping.
+func TestSyncPerformerIDSurfacesStashErrors(t *testing.T) {
+	h := newHarness(t, iafdOnly())
+	h.stash.err = errors.New("graphql is down")
+	if _, err := h.SyncPerformerID(context.Background(), "1", false); err == nil {
+		t.Fatal("SyncPerformerID hid a stash error")
+	}
+}
+
+// SyncPerformer returns one result per enabled source.
+func TestSyncPerformerProducesOneResultPerEnabledSource(t *testing.T) {
+	settings := config.Default()
+	h := newHarness(t, settings, performer("1", "Angela Test",
+		"https://iafd.test/person/angela", "https://aia.test/angela-test/"))
+	h.iafd.pages["https://iafd.test/person/angela"] = []store.Award{award("AVN", "A", 2019)}
+	h.aia.pages["https://aia.test/angela-test/"] = []store.Award{award("XBIZ", "B", 2020)}
+
+	p := &h.stash.performers[0]
+	results, err := h.SyncPerformer(context.Background(), p, false)
+	if err != nil {
+		t.Fatalf("SyncPerformer: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("got %d results, want one per enabled source", len(results))
+	}
+}
+
+// A successful guess at the source's canonical URL is recorded as OriginGuessed.
+func TestSyncUsesAGuessedURLWhenItWorks(t *testing.T) {
+	settings := iafdOnly()
+	settings.IAFDEnabled = false
+	settings.AIAEnabled = true
+	h := newHarness(t, settings, performer("1", "Angela Test"))
+	guess := "https://aia.test/angela-test/"
+	h.aia.guess = guess
+	h.aia.pages[guess] = []store.Award{award("AVN", "Best Actress", 2019)}
+
+	res, err := h.SyncSource(context.Background(), &h.stash.performers[0], store.SourceAIA, false)
+	if err != nil {
+		t.Fatalf("SyncSource: %v", err)
+	}
+	if res.Status != StatusSynced || res.Origin != OriginGuessed {
+		t.Errorf("result = %+v, want guessed origin", res)
+	}
+	if h.aia.searches != 0 {
+		t.Errorf("a working guess should not trigger a search, but searched %d times", h.aia.searches)
+	}
+}
+
+// A guess that returns a non-NotFound error is treated as a failure rather
+// than silently falling through to a search.
+func TestSyncReportsAGuessFailure(t *testing.T) {
+	settings := iafdOnly()
+	settings.IAFDEnabled = false
+	settings.AIAEnabled = true
+	h := newHarness(t, settings, performer("1", "Angela Test"))
+	guess := "https://aia.test/angela-test/"
+	h.aia.guess = guess
+	h.aia.failURL = map[string]error{guess: errors.New("upstream 503")}
+
+	res, err := h.SyncSource(context.Background(), &h.stash.performers[0], store.SourceAIA, false)
+	if err != nil {
+		t.Fatalf("SyncSource: %v", err)
+	}
+	if res.Status != StatusFailed {
+		t.Errorf("result = %+v, want a failure", res)
+	}
+	if h.aia.searches != 0 {
+		t.Errorf("a failed guess should not fall through to a search, but searched %d times", h.aia.searches)
+	}
+}
+
+// A search error is reported as a failure with the search context attached.
+func TestSyncReportsASearchError(t *testing.T) {
+	h := newHarness(t, iafdOnly(), performer("1", "Angela Test"))
+	h.iafd.sErr = errors.New("rate limit exceeded")
+
+	res, err := h.SyncSource(context.Background(), &h.stash.performers[0], store.SourceIAFD, false)
+	if err != nil {
+		t.Fatalf("SyncSource: %v", err)
+	}
+	if res.Status != StatusFailed {
+		t.Errorf("result = %+v, want a failure", res)
+	}
+	if !strings.Contains(res.Message, "rate limit exceeded") {
+		t.Errorf("result = %+v, want the search error surfaced", res)
+	}
+}
+
+// An empty NextSyncAfter must be treated as stale: a row with no schedule is
+// not "up to date" and is eligible for re-sync.
+func TestIsFreshTreatsEmptyScheduleAsStale(t *testing.T) {
+	h := newHarness(t, iafdOnly(), performer("1", "Angela Test", "https://iafd.test/person/a"))
+	// The default for NextSyncAfter is NULL, which reads as the empty
+	// string. After MarkError the column is still NULL.
+	if err := h.store.MarkError("1", store.SourceIAFD, "previous failure", fixedNow.Add(-time.Hour)); err != nil {
+		t.Fatalf("mark: %v", err)
+	}
+	fresh, err := h.isFresh("1", store.SourceIAFD)
+	if err != nil {
+		t.Fatalf("isFresh: %v", err)
+	}
+	if fresh {
+		t.Error("an unscheduled row was reported as fresh")
 	}
 }
