@@ -59,6 +59,18 @@ func TestLoadReturnsDefaultsAlongsideAnError(t *testing.T) {
 	}
 }
 
+// A nil source must not panic; the plugin must still hand back the defaults
+// rather than refusing to run.
+func TestLoadToleratesANilSource(t *testing.T) {
+	got, err := Load(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("err = %v, want nil for a missing source", err)
+	}
+	if got != Default() {
+		t.Errorf("settings = %+v, want the defaults", got)
+	}
+}
+
 func TestFromMapReadsSavedValues(t *testing.T) {
 	got := FromMap(map[string]interface{}{
 		KeyAutoSync:         true,
@@ -125,6 +137,62 @@ func TestFromMapIgnoresJunk(t *testing.T) {
 	})
 	if got.IAFDEnabled != DefaultIAFDEnabled || got.AIADelayMs != aia.DefaultDelay {
 		t.Errorf("settings = %+v, want the defaults preserved", got)
+	}
+}
+
+func TestBoolValueCoversEveryBranch(t *testing.T) {
+	// Direct test of the parser, since FromMap only feeds it the surface
+	// paths and the falsy-string fallthrough is otherwise untested.
+	cases := []struct {
+		name string
+		in   interface{}
+		def  bool
+		want bool
+	}{
+		{"bool true", true, false, true},
+		{"bool false", false, true, false},
+		{"string True", "True", false, true},
+		{"string 1", "1", false, true},
+		{"string false", "false", true, false},
+		{"string 0", "0", true, false},
+		{"unrecognised string", "yes", false, false},
+		{"unrecognised string keeps default true", "yes", true, true},
+		{"nil", nil, true, true},
+		{"number", 1, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := boolValue(map[string]interface{}{KeyAutoSync: c.in}, KeyAutoSync, c.def); got != c.want {
+				t.Errorf("boolValue(%v) = %v, want %v", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestIntValueCoversEveryBranch(t *testing.T) {
+	// "12abc" exercises the non-digit-after-first-character branch: it parses
+	// the leading digits and stops, rather than discarding the whole value.
+	cases := []struct {
+		name string
+		in   interface{}
+		def  int
+		want int
+	}{
+		{"float64", float64(42), -1, 42},
+		{"int literal", 42, -1, 42},
+		{"plain string", "42", -1, 42},
+		{"string with trailing junk", "12abc", -1, 12},
+		{"empty string", "", -1, -1},
+		{"non-digit at start", "abc", -1, -1},
+		{"nil", nil, 99, 99},
+		{"bool", true, 99, 99},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := intValue(map[string]interface{}{KeyIAFDDelayMs: c.in}, KeyIAFDDelayMs, c.def); got != c.want {
+				t.Errorf("intValue(%v) = %v, want %v", c.in, got, c.want)
+			}
+		})
 	}
 }
 
