@@ -3,6 +3,7 @@ package ops
 import (
 	"errors"
 	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -483,6 +484,57 @@ func TestSearchRequiresNameOrPerformerID(t *testing.T) {
 		"mode": ModeSearch, "source": string(store.SourceAIA),
 	}); err == nil || !strings.Contains(err.Error(), "name or a performerId") {
 		t.Fatalf("want a missing-argument error, got %v", err)
+	}
+}
+
+// search with a name argument must use the argument verbatim and skip the
+// Stash performer lookup. The Stash stub is left with a working handler, so
+// if the dispatcher were to consult Stash the path would succeed there too;
+// the test instead inspects the reply to confirm the supplied name made it
+// through.
+func TestSearchUsesNameArgument(t *testing.T) {
+	stub := newStashStub(t)
+	dir := t.TempDir()
+
+	// Stash performer "7" exists, but a "name" argument must take precedence
+	// over the performerId-based lookup.
+	stub.performers["7"] = stubPerformer{ID: "7", Name: "Different Name"}
+
+	out, err := stub.dispatch(dir, protocol.Args{
+		"mode": ModeSearch, "source": string(store.SourceAIA),
+		"performerId": "7", "name": "Angela",
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	payload, ok := out.(SearchPayload)
+	if !ok {
+		t.Fatalf("Search returned %T", out)
+	}
+	if payload.Name != "Angela" {
+		t.Errorf("name = %q, want the explicit argument Angela", payload.Name)
+	}
+}
+
+// search with a performer id but no name must fall back to looking the
+// performer up in Stash to get the name. Stash is configured to fail, so
+// the fall-back path surfaces a Stash error before the provider is ever
+// consulted.
+func TestSearchFallsBackToStashWhenNameIsMissing(t *testing.T) {
+	stub := newStashStub(t)
+	stub.status = http.StatusInternalServerError
+	dir := t.TempDir()
+
+	_, err := stub.dispatch(dir, protocol.Args{
+		"mode": ModeSearch, "source": string(store.SourceAIA), "performerId": "7",
+	})
+	if err == nil {
+		t.Fatal("Search succeeded despite Stash being down")
+	}
+	// The fall-back path goes rt.stash.Performer first, so a 500 there
+	// produces an error that mentions the HTTP status.
+	if !strings.Contains(err.Error(), "500") {
+		t.Errorf("err = %v, want a Stash 500 surfaced through the fall-back path", err)
 	}
 }
 
