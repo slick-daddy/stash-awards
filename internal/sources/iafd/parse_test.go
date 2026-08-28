@@ -1,6 +1,7 @@
 package iafd
 
 import (
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -160,5 +161,50 @@ func TestParseAwardsWithoutPanelReturnsNothing(t *testing.T) {
 	}
 	if len(awards) != 0 {
 		t.Errorf("got %d awards, want 0", len(awards))
+	}
+}
+
+// resolve covers three reachable paths: empty href, unparsable href, and
+// an absolute href that should pass through unchanged.
+func TestResolve(t *testing.T) {
+	base, _ := url.Parse("https://www.iafd.com/search/")
+	cases := []struct {
+		name string
+		base *url.URL
+		href string
+		want string
+	}{
+		{"empty href", base, "", ""},
+		{"unparsable href", base, "://bad", "://bad"},
+		{"absolute href", base, "https://other.test/x", "https://other.test/x"},
+		{"relative href resolved against base", base, "/person/abc", "https://www.iafd.com/person/abc"},
+		{"nil base means return the href as parsed", nil, "/relative", "/relative"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := resolve(c.base, c.href); got != c.want {
+				t.Errorf("resolve = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// RecogniseURL must accept the canonical id= form and reject URLs that are
+// not on the IAFD host.
+func TestRecogniseURLHandlesHostVariants(t *testing.T) {
+	p := &Provider{}
+	for _, in := range []string{
+		"https://www.iafd.com/person.rme/id=abc",
+		"https://iafd.com/person.rme/id=abc",
+	} {
+		if _, ok := p.RecogniseURL(in); !ok {
+			t.Errorf("RecogniseURL(%q) = false, want true", in)
+		}
+	}
+	if _, ok := p.RecogniseURL("https://example.com/person.rme/id=abc"); ok {
+		t.Error("RecogniseURL accepted a URL from another site")
+	}
+	if _, ok := p.RecogniseURL("https://www.iafd.com/title.rme/id=abc"); ok {
+		t.Error("RecogniseURL accepted a non-person URL on the iafd host")
 	}
 }
