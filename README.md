@@ -12,7 +12,7 @@ visits.
 
 ## Status
 
-Under construction. See `docs/ARCHITECTURE.md` for the design.
+Under construction.
 
 ## License
 
