@@ -1,3 +1,4 @@
+/* GENERATED -- do not edit. Source: ui/src/*, built via npm run build in ui/ */
 "use strict";
 (() => {
   // src/plugin.ts
