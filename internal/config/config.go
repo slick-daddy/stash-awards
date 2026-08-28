@@ -49,12 +49,12 @@ const (
 
 // Settings is the resolved configuration for one plugin invocation.
 type Settings struct {
-	AutoSyncEnabled  bool
-	SyncIntervalDays int
-	IAFDEnabled      bool
-	AIAEnabled       bool
-	IAFDDelayMs      int
-	AIADelayMs       int
+	AutoSyncEnabled  bool `json:"autoSyncEnabled"`
+	SyncIntervalDays int  `json:"syncIntervalDays"`
+	IAFDEnabled      bool `json:"iafdEnabled"`
+	AIAEnabled       bool `json:"aiaEnabled"`
+	IAFDDelayMs      int  `json:"iafdDelayMs"`
+	AIADelayMs       int  `json:"aiaDelayMs"`
 }
 
 // Default returns the settings a fresh install runs with.
