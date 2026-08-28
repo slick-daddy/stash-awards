@@ -265,7 +265,10 @@
   function isAwardsNavbar(el) {
     var _a11;
     const className = (_a11 = el == null ? void 0 : el.props) == null ? void 0 : _a11.className;
-    return typeof className === "string" && className.includes("details-edit") && className.includes("mb-2");
+    if (typeof className !== "string") return false;
+    const hasDetailsEdit = className.includes("details-edit");
+    if (!hasDetailsEdit) return false;
+    return className.includes("mb-2") || hasDetailsEdit;
   }
   function inject(node, performerId) {
     var _a11;
@@ -273,10 +276,18 @@
     if (!React.isValidElement(node)) return node;
     const el = node;
     if (isAwardsNavbar(el)) {
+      const children2 = React.Children.toArray(el.props.children);
+      const already = children2.some(
+        (c) => {
+          var _a12, _b7, _c2;
+          return (c == null ? void 0 : c.key) === "awards-button" || ((_c2 = (_b7 = (_a12 = c == null ? void 0 : c.props) == null ? void 0 : _a12.className) == null ? void 0 : _b7.includes) == null ? void 0 : _c2.call(_b7, "awards-nav-button"));
+        }
+      );
+      if (already) return el;
       return React.cloneElement(
         el,
         {},
-        ...React.Children.toArray(el.props.children),
+        ...children2,
         React.createElement(AwardsNavButton, { key: "awards-button", performerId })
       );
     }
