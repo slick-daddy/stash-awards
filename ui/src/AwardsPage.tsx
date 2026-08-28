@@ -30,7 +30,13 @@ function timeAgo(iso: string): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
   const days = Math.floor(hours / 24);
-  return days === 1 ? "1 day ago" : `${days} days ago`;
+  if (days < 7) return days === 1 ? "1 day ago" : `${days} days ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return weeks === 1 ? "1 week ago" : `${weeks} weeks ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return months === 1 ? "1 month ago" : `${months} months ago`;
+  const years = Math.floor(days / 365);
+  return years === 1 ? "1 year ago" : `${years} years ago`;
 }
 
 // movieUrl makes an award's movie link followable. IAFD hands out relative
@@ -57,8 +63,9 @@ const resultBadgeVariant: Record<AwardResult, string> = {
   inducted: "warning",
 };
 
-// Grouping keeps the first-appearance order of organizations, which the
-// backend's "year DESC, organization ASC" sort already arranges sensibly.
+// Grouping keeps the first-appearance order of organizations. Backend sorts
+// "year DESC, organization ASC" so insertion order is sensible, but we
+// sort within each group by year DESC to not rely on backend ordering.
 function groupByOrganization(awards: Award[]) {
   const groups: { organization: string; awards: Award[] }[] = [];
   const index = new Map<string, number>();
@@ -70,6 +77,9 @@ function groupByOrganization(awards: Award[]) {
       groups.push({ organization: award.organization, awards: [] });
     }
     groups[at].awards.push(award);
+  }
+  for (const g of groups) {
+    g.awards.sort((a, b) => b.year - a.year);
   }
   return groups;
 }
