@@ -2,10 +2,13 @@ module github.com/slick-daddy/stash-awards
 
 go 1.27.0
 
-require modernc.org/sqlite v1.57.0
+require (
+	github.com/PuerkitoBio/goquery v1.10.3
+	gopkg.in/yaml.v3 v3.0.1
+	modernc.org/sqlite v1.57.0
+)
 
 require (
-	github.com/PuerkitoBio/goquery v1.10.3 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
