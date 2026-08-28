@@ -3,20 +3,44 @@
   // src/plugin.ts
   var api = window.PluginApi;
   if (!api) {
-    throw new Error(
-      "stash-awards: window.PluginApi is missing; this script must be loaded by Stash"
+    console.warn(
+      "stash-awards: window.PluginApi is missing; UI will not mount outside Stash"
     );
   }
-  var React = api.React;
-  var Apollo = api.Apollo;
-  var StashService = api.utils.StashService;
-  var register = api.register;
-  var patch = api.patch;
-  var Bootstrap = api.libraries.Bootstrap;
-  var ReactRouterDOM = api.libraries.ReactRouterDOM;
-  var FontAwesomeIcon = api.libraries.ReactFontAwesome.FontAwesomeIcon;
-  var FontAwesomeSolid = api.libraries.FontAwesomeSolid;
-  var useToast = api.hooks.useToast;
+  var noop = () => {
+  };
+  var noopComponent = () => null;
+  var _a;
+  var React = (_a = api == null ? void 0 : api.React) != null ? _a : {
+    createElement: noopComponent,
+    isValidElement: () => false,
+    Children: { toArray: (x) => Array.isArray(x) ? x : x ? [x] : [] },
+    useState: () => [null, noop],
+    useEffect: noop,
+    Fragment: "fragment"
+  };
+  var _a2;
+  var Apollo = (_a2 = api == null ? void 0 : api.Apollo) != null ? _a2 : { gql: (x) => x };
+  var _a3, _b;
+  var StashService = (_b = (_a3 = api == null ? void 0 : api.utils) == null ? void 0 : _a3.StashService) != null ? _b : {
+    getClient: () => ({ mutate: async () => ({ data: {} }) })
+  };
+  var _a4;
+  var register = (_a4 = api == null ? void 0 : api.register) != null ? _a4 : { route: noop };
+  var _a5;
+  var patch = (_a5 = api == null ? void 0 : api.patch) != null ? _a5 : { before: noop, after: noop, instead: noop };
+  var _a6, _b2;
+  var Bootstrap = (_b2 = (_a6 = api == null ? void 0 : api.libraries) == null ? void 0 : _a6.Bootstrap) != null ? _b2 : {};
+  var _a7, _b3;
+  var ReactRouterDOM = (_b3 = (_a7 = api == null ? void 0 : api.libraries) == null ? void 0 : _a7.ReactRouterDOM) != null ? _b3 : {
+    useHistory: () => ({ push: noop })
+  };
+  var _a8, _b4, _c;
+  var FontAwesomeIcon = (_c = (_b4 = (_a8 = api == null ? void 0 : api.libraries) == null ? void 0 : _a8.ReactFontAwesome) == null ? void 0 : _b4.FontAwesomeIcon) != null ? _c : noopComponent;
+  var _a9, _b5;
+  var FontAwesomeSolid = (_b5 = (_a9 = api == null ? void 0 : api.libraries) == null ? void 0 : _a9.FontAwesomeSolid) != null ? _b5 : {};
+  var _a10, _b6;
+  var useToast = (_b6 = (_a10 = api == null ? void 0 : api.hooks) == null ? void 0 : _a10.useToast) != null ? _b6 : (() => ({ success: noop, error: noop }));
 
   // src/api.ts
   var PLUGIN_ID = "awards";
@@ -26,24 +50,24 @@
   }
 `;
   async function run(args) {
-    var _a;
+    var _a11;
     const client = StashService.getClient();
     const result = await client.mutate({
       mutation: RUN_OPERATION,
       variables: { plugin_id: PLUGIN_ID, args }
     });
-    if ((_a = result.errors) == null ? void 0 : _a.length) {
+    if ((_a11 = result.errors) == null ? void 0 : _a11.length) {
       throw new Error(result.errors[0].message);
     }
     return result.data.runPluginOperation;
   }
   function getAwards(performerId, opts = {}) {
-    var _a, _b;
+    var _a11, _b7;
     return run({
       mode: "getAwards",
       performerId,
-      sync: (_a = opts.sync) != null ? _a : true,
-      force: (_b = opts.force) != null ? _b : false
+      sync: (_a11 = opts.sync) != null ? _a11 : true,
+      force: (_b7 = opts.force) != null ? _b7 : false
     });
   }
   function syncSource(performerId, source) {
@@ -102,9 +126,9 @@
     return groups;
   }
   function AwardRow({ award }) {
-    var _a;
+    var _a11;
     const url = movieUrl(award);
-    return /* @__PURE__ */ React.createElement("div", { className: "awards-row" }, /* @__PURE__ */ React.createElement("span", { className: "awards-year" }, award.year), /* @__PURE__ */ React.createElement(Badge, { variant: (_a = resultBadgeVariant[award.result]) != null ? _a : "secondary" }, award.result), /* @__PURE__ */ React.createElement("span", { className: "awards-name" }, award.awardName, award.category ? `: ${award.category}` : "", award.associatedMovie ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \u2014 ", url ? /* @__PURE__ */ React.createElement("a", { href: url, target: "_blank", rel: "noopener noreferrer" }, award.associatedMovie) : award.associatedMovie, award.associatedMovieYear ? ` (${award.associatedMovieYear})` : "") : null));
+    return /* @__PURE__ */ React.createElement("div", { className: "awards-row" }, /* @__PURE__ */ React.createElement("span", { className: "awards-year" }, award.year), /* @__PURE__ */ React.createElement(Badge, { variant: (_a11 = resultBadgeVariant[award.result]) != null ? _a11 : "secondary" }, award.result), /* @__PURE__ */ React.createElement("span", { className: "awards-name" }, award.awardName, award.category ? `: ${award.category}` : "", award.associatedMovie ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \u2014 ", url ? /* @__PURE__ */ React.createElement("a", { href: url, target: "_blank", rel: "noopener noreferrer" }, award.associatedMovie) : award.associatedMovie, award.associatedMovieYear ? ` (${award.associatedMovieYear})` : "") : null));
   }
   function AwardGroup({
     organization,
@@ -117,8 +141,8 @@
     onRefresh,
     refreshing
   }) {
-    var _a;
-    const awards = (_a = source.awards) != null ? _a : [];
+    var _a11;
+    const awards = (_a11 = source.awards) != null ? _a11 : [];
     if (!source.enabled) {
       return /* @__PURE__ */ React.createElement(Alert, { variant: "secondary" }, source.label, " is turned off in the plugin settings, so its awards are not shown.");
     }
@@ -151,8 +175,8 @@
     return /* @__PURE__ */ React.createElement(Button, { variant: "secondary", size: "sm", onClick }, /* @__PURE__ */ React.createElement(FontAwesomeIcon, { icon: FontAwesomeSolid.faArrowLeft }), " Back");
   }
   var AwardsPage = ({ match }) => {
-    var _a, _b, _c, _d, _e, _f;
-    const performerId = (_b = (_a = match == null ? void 0 : match.params) == null ? void 0 : _a.performerId) != null ? _b : "";
+    var _a11, _b7, _c2, _d, _e, _f;
+    const performerId = (_b7 = (_a11 = match == null ? void 0 : match.params) == null ? void 0 : _a11.performerId) != null ? _b7 : "";
     const history = ReactRouterDOM.useHistory();
     const toast = useToast();
     const [payload, setPayload] = React.useState(null);
@@ -167,15 +191,15 @@
       getAwards(performerId).then((data) => {
         if (!cancelled) setPayload(data);
       }).catch((err) => {
-        var _a2;
-        if (!cancelled) setLoadError((_a2 = err.message) != null ? _a2 : String(err));
+        var _a12;
+        if (!cancelled) setLoadError((_a12 = err.message) != null ? _a12 : String(err));
       });
       return () => {
         cancelled = true;
       };
     }, [performerId, reload]);
     const refresh = async (source) => {
-      var _a2;
+      var _a12;
       if (refreshing.has(source.source)) return;
       setRefreshing((prev) => new Set(prev).add(source.source));
       try {
@@ -183,7 +207,7 @@
         setPayload(await getAwards(performerId, { sync: false }));
         toast.success(`${source.label} refreshed`);
       } catch (err) {
-        toast.error((_a2 = err.message) != null ? _a2 : String(err));
+        toast.error((_a12 = err.message) != null ? _a12 : String(err));
       } finally {
         setRefreshing((prev) => {
           const next = new Set(prev);
@@ -201,7 +225,7 @@
     if (!payload) {
       return /* @__PURE__ */ React.createElement("div", { className: "awards-page" }, /* @__PURE__ */ React.createElement(BackButton, { onClick: () => history.push(`/performers/${performerId}`) }), /* @__PURE__ */ React.createElement(Spinner, { animation: "border", role: "status" }));
     }
-    const title = (_c = payload.performerName) != null ? _c : payload.performerId;
+    const title = (_c2 = payload.performerName) != null ? _c2 : payload.performerId;
     const defaultSource = (_f = (_d = payload.sources.find((s) => s.enabled)) == null ? void 0 : _d.source) != null ? _f : (_e = payload.sources[0]) == null ? void 0 : _e.source;
     return /* @__PURE__ */ React.createElement("div", { className: "awards-page" }, /* @__PURE__ */ React.createElement("div", { className: "awards-header" }, /* @__PURE__ */ React.createElement(BackButton, { onClick: () => history.push(`/performers/${performerId}`) }), /* @__PURE__ */ React.createElement("h3", { className: "awards-title" }, title), /* @__PURE__ */ React.createElement("span", { className: "awards-total" }, payload.total, " award", payload.total === 1 ? "" : "s")), payload.warning ? /* @__PURE__ */ React.createElement(Alert, { variant: "warning" }, payload.warning) : null, /* @__PURE__ */ React.createElement(Tabs, { defaultActiveKey: defaultSource, id: "awards-sources" }, payload.sources.map((source) => /* @__PURE__ */ React.createElement(
       Tab,
@@ -239,12 +263,12 @@
     );
   }
   function isAwardsNavbar(el) {
-    var _a;
-    const className = (_a = el == null ? void 0 : el.props) == null ? void 0 : _a.className;
+    var _a11;
+    const className = (_a11 = el == null ? void 0 : el.props) == null ? void 0 : _a11.className;
     return typeof className === "string" && className.includes("details-edit") && className.includes("mb-2");
   }
   function inject(node, performerId) {
-    var _a;
+    var _a11;
     if (Array.isArray(node)) return node.map((child) => inject(child, performerId));
     if (!React.isValidElement(node)) return node;
     const el = node;
@@ -256,14 +280,14 @@
         React.createElement(AwardsNavButton, { key: "awards-button", performerId })
       );
     }
-    const children = (_a = el.props) == null ? void 0 : _a.children;
+    const children = (_a11 = el.props) == null ? void 0 : _a11.children;
     if (children == null || typeof children === "function") return el;
     return React.cloneElement(el, {}, inject(children, performerId));
   }
   function injectAwardsButton(props, result) {
-    var _a;
+    var _a11;
     try {
-      const performerId = (_a = props == null ? void 0 : props.performer) == null ? void 0 : _a.id;
+      const performerId = (_a11 = props == null ? void 0 : props.performer) == null ? void 0 : _a11.id;
       if (!performerId || !result) return result;
       return inject(result, performerId);
     } catch (err) {
