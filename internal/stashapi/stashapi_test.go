@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/slick-daddy/stash-awards/internal/protocol"
 )
@@ -190,5 +191,55 @@ func TestPluginSettingsTreatsAnAbsentPluginAsEmpty(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("settings = %v, want empty", got)
+	}
+}
+
+// NewWithHTTPClient with a custom HTTP client must use that client, so a
+// caller that wants a non-default timeout or transport can have it.
+func TestNewWithHTTPClientUsesTheSuppliedClient(t *testing.T) {
+	hc := &http.Client{Timeout: 5 * time.Second}
+	c := NewWithHTTPClient(protocol.ServerConnection{
+		Scheme: "http", Host: "localhost", Port: 9999,
+	}, hc)
+	if c.http != hc {
+		t.Error("NewWithHTTPClient did not store the supplied client")
+	}
+}
+
+// Performers clamps the page number to 1 so an underflow does not ask
+// Stash for page 0. perPage is passed through; a caller asking for zero
+// rows is the caller's problem, not this client's.
+func TestPerformersClampsPageToOne(t *testing.T) {
+	rec := &recorder{reply: `{"data":{"findPerformers":{"count":0,"performers":[]}}}`}
+	c := testClient(t, rec)
+
+	if _, _, err := c.Performers(context.Background(), 0, 5); err != nil {
+		t.Fatalf("Performers: %v", err)
+	}
+	vars := rec.requests[0]["variables"].(map[string]interface{})
+	if vars["page"] != float64(1) {
+		t.Errorf("page = %v, want 1", vars["page"])
+	}
+	if vars["perPage"] != float64(5) {
+		t.Errorf("perPage = %v, want 5", vars["perPage"])
+	}
+}
+
+// A GraphQL response whose data field is a JSON value the target type cannot
+// hold must surface that as a decode error, not as a silent miss.
+func TestQueryReportsUndecodableData(t *testing.T) {
+	// "data" is a string, but Performer expects an object.
+	c := testClient(t, &recorder{reply: `{"data":"not an object"}`})
+	if _, err := c.Performer(context.Background(), "7"); err == nil {
+		t.Fatal("Performer accepted a string data payload as a performer")
+	}
+}
+
+// A non-200 response with a non-JSON body must still surface a clear error
+// rather than parsing the body as a GraphQL envelope.
+func TestQueryHandlesNonJSONErrorBodies(t *testing.T) {
+	c := testClient(t, &recorder{status: http.StatusBadGateway, reply: `<html>cloudflare down</html>`})
+	if _, err := c.Performer(context.Background(), "7"); err == nil {
+		t.Fatal("Performer accepted an HTML error page as success")
 	}
 }
