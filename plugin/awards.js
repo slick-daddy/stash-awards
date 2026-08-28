@@ -267,9 +267,10 @@
         variant: "secondary",
         title: "Awards",
         className: "awards-nav-button",
+        style: { marginRight: 8 },
         onClick: () => history.push(`/plugins/awards/${performerId}`)
       },
-      /* @__PURE__ */ React.createElement(FontAwesomeIcon, { icon: FontAwesomeSolid.faTrophy })
+      "\u{1F3C6} Awards"
     );
   }
   function getPerformerId(props) {
@@ -279,42 +280,16 @@
     const m = /\/performers?\/([^/?#]+)/.exec(window.location.pathname);
     return m == null ? void 0 : m[1];
   }
-  function isButton(el) {
-    if (!React.isValidElement(el)) return false;
-    return el.type === Button2 || typeof el.type === "string" && el.type === "button";
-  }
-  function alreadyAdded(children) {
-    return children.some(
-      (c) => {
-        var _a11, _b7, _c2;
-        return (_c2 = (_b7 = (_a11 = c == null ? void 0 : c.props) == null ? void 0 : _a11.className) == null ? void 0 : _b7.includes) == null ? void 0 : _c2.call(_b7, "awards-nav-button");
-      }
-    );
-  }
-  function inject(node, performerId) {
-    var _a11;
-    if (Array.isArray(node)) return node.map((c) => inject(c, performerId));
-    if (!React.isValidElement(node)) return node;
-    const el = node;
-    const children = (_a11 = el.props) == null ? void 0 : _a11.children;
-    if (children == null || typeof children === "function") return el;
-    const childArr = React.Children.toArray(children);
-    if (childArr.some(isButton)) {
-      if (alreadyAdded(childArr)) return el;
-      return React.cloneElement(
-        el,
-        {},
-        ...childArr,
-        React.createElement(AwardsNavButton, { key: "awards-button", performerId })
-      );
-    }
-    return React.cloneElement(el, {}, inject(children, performerId));
-  }
   function injectAwardsButton(props, result) {
     try {
       const performerId = getPerformerId(props);
       if (!performerId || !result) return result;
-      return inject(result, performerId);
+      return React.createElement(
+        React.Fragment,
+        null,
+        React.createElement(AwardsNavButton, { key: "awards-button", performerId }),
+        result
+      );
     } catch (err) {
       console.warn("stash-awards: could not add the awards button", err);
       return result;
