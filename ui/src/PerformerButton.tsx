@@ -12,14 +12,23 @@ import { React, Bootstrap, ReactRouterDOM } from "./plugin";
 const { Button } = Bootstrap;
 
 export function AwardsNavButton({ performerId }: { performerId: string }) {
-  const history = ReactRouterDOM.useHistory();
+  // react-router v5 exposes useHistory(); v6 exposes useNavigate(). Support both,
+  // and fall back to a full reload if neither is present.
+  const history = ReactRouterDOM.useHistory?.();
+  const navigate = ReactRouterDOM.useNavigate?.();
+  const go = () => {
+    const path = `/plugins/awards/${performerId}`;
+    if (history) history.push(path);
+    else if (navigate) navigate(path);
+    else window.location.assign(path);
+  };
   return (
     <Button
       variant="secondary"
       title="Awards"
       className="awards-nav-button"
       style={{ marginRight: 8 }}
-      onClick={() => history.push(`/plugins/awards/${performerId}`)}
+      onClick={go}
     >
       🏆 Awards
     </Button>

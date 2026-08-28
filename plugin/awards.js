@@ -260,7 +260,15 @@
   // src/PerformerButton.tsx
   var { Button: Button2 } = Bootstrap;
   function AwardsNavButton({ performerId }) {
-    const history = ReactRouterDOM.useHistory();
+    var _a11, _b7, _c2, _d;
+    const history = (_b7 = (_a11 = ReactRouterDOM).useHistory) == null ? void 0 : _b7.call(_a11);
+    const navigate = (_d = (_c2 = ReactRouterDOM).useNavigate) == null ? void 0 : _d.call(_c2);
+    const go = () => {
+      const path = `/plugins/awards/${performerId}`;
+      if (history) history.push(path);
+      else if (navigate) navigate(path);
+      else window.location.assign(path);
+    };
     return /* @__PURE__ */ React.createElement(
       Button2,
       {
@@ -268,7 +276,7 @@
         title: "Awards",
         className: "awards-nav-button",
         style: { marginRight: 8 },
-        onClick: () => history.push(`/plugins/awards/${performerId}`)
+        onClick: go
       },
       "\u{1F3C6} Awards"
     );
