@@ -2,8 +2,43 @@ package protocol
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
+
+func TestArgsIntParsesJSONNumber(t *testing.T) {
+	// json.Number is the type produced when a JSON decoder is configured with
+	// UseNumber; Int must accept it without going through the default branch.
+	dec := json.NewDecoder(strings.NewReader(`{"n": 7}`))
+	dec.UseNumber()
+	var args Args
+	if err := dec.Decode(&args); err != nil {
+		t.Fatal(err)
+	}
+	if got := args.Int("n", -1); got != 7 {
+		t.Errorf("Int(n) = %d, want 7", got)
+	}
+}
+
+func TestArgsIntFallsBackOnGarbage(t *testing.T) {
+	args := Args{"junk": "not a number", "wrong": true}
+	if got := args.Int("junk", 99); got != 99 {
+		t.Errorf("Int(junk) = %d, want default 99", got)
+	}
+	if got := args.Int("wrong", 99); got != 99 {
+		t.Errorf("Int(wrong bool) = %d, want default 99", got)
+	}
+}
+
+func TestArgsBoolRejectsUnrecognisedStrings(t *testing.T) {
+	args := Args{"yes": "yes", "no": "no"}
+	if args.Bool("yes", false) {
+		t.Error(`Bool("yes") = true, want default false`)
+	}
+	if !args.Bool("no", true) {
+		t.Error(`Bool("no") = false, want default true`)
+	}
+}
 
 func TestArgsAccessors(t *testing.T) {
 	// Numbers arrive as float64 from JSON, but Stash task defaultArgs are
