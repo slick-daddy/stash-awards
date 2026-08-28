@@ -152,6 +152,31 @@ func scanAwards(rows *sql.Rows) ([]Award, error) {
 	return out, rows.Err()
 }
 
+// ForgetSource removes everything stored about a performer for one source.
+// Called when the user unlinks a source, so that a later sync starts from
+// scratch rather than resurrecting the URL that was just rejected.
+func (s *Store) ForgetSource(performerID string, source Source) error {
+	if !source.Valid() {
+		return fmt.Errorf("unknown source %q", source)
+	}
+
+	tx, err := s.write.Begin()
+	if err != nil {
+		return fmt.Errorf("begin forget source: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, table := range []string{"awards", "performer_urls", "sync_state"} {
+		if _, err := tx.Exec(`DELETE FROM `+table+` WHERE performer_id = ? AND source = ?`, performerID, source); err != nil {
+			return fmt.Errorf("delete from %s: %w", table, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit forget source: %w", err)
+	}
+	return nil
+}
+
 // ForgetPerformer removes everything stored about a performer. Called when Stash
 // reports the performer was deleted, so the database does not accumulate rows
 // pointing at IDs that no longer exist.
