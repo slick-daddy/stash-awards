@@ -421,15 +421,16 @@ func TestGetRejectsOversizedResponse(t *testing.T) {
 // back to the requested URL in that case.
 func TestGetFallsBackToRequestedURL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Returning 200 with a no-Request transport simulates the edge case.
 		w.Write([]byte("ok"))
 	}))
 	defer srv.Close()
 
-	// Replace the transport with one that does not set Request on the
-	// response, forcing attempt to use the original URL.
-	noReqClient := &http.Client{Transport: noRequestTransport{}}
-	c := New(Options{HTTPClient: noReqClient, Sleep: func(context.Context, time.Duration) error { return nil }})
+	// Force the response to arrive without a Request, so attempt has to fall
+	// back to the original URL.
+	c := New(Options{
+		HTTPClient: &http.Client{Transport: transportWithoutRequest{}},
+		Sleep:      nopSleep,
+	})
 
 	resp, err := c.Get(context.Background(), "iafd", srv.URL)
 	if err != nil {
@@ -440,9 +441,11 @@ func TestGetFallsBackToRequestedURL(t *testing.T) {
 	}
 }
 
-type noRequestTransport struct{}
+// transportWithoutRequest answers every request with a 200 body but a nil
+// Request field, the edge case the client must defend against.
+type transportWithoutRequest struct{}
 
-func (noRequestTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+func (transportWithoutRequest) RoundTrip(r *http.Request) (*http.Response, error) {
 	w := httptest.NewRecorder()
 	w.Write([]byte("ok"))
 	resp := w.Result()
@@ -454,10 +457,9 @@ func (noRequestTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 // error so the retry loop kicks in.
 func TestGetWrapsTransportErrorsAsTransient(t *testing.T) {
 	boom := errors.New("dial tcp: connection refused")
-	tr := errorTransport{err: boom}
 	c := New(Options{
-		HTTPClient: &http.Client{Transport: tr},
-		Sleep:      func(context.Context, time.Duration) error { return nil },
+		HTTPClient: &http.Client{Transport: failingTransport{err: boom}},
+		Sleep:      nopSleep,
 		MaxRetries: 1,
 	})
 	_, err := c.Get(context.Background(), "iafd", "http://example.invalid/")
@@ -501,8 +503,8 @@ func TestGetSurfacesBackoffSleepError(t *testing.T) {
 func TestGetTreatsReadErrorAsTransient(t *testing.T) {
 	boom := errors.New("connection reset by peer")
 	c := New(Options{
-		HTTPClient: &http.Client{Transport: readErrorTransport{err: boom}},
-		Sleep:      func(context.Context, time.Duration) error { return nil },
+		HTTPClient: &http.Client{Transport: transportWithReadError{err: boom}},
+		Sleep:      nopSleep,
 		MaxRetries: 1,
 	})
 	_, err := c.Get(context.Background(), "iafd", "http://example.invalid/")
@@ -518,10 +520,10 @@ func TestGetTreatsReadErrorAsTransient(t *testing.T) {
 	}
 }
 
-// readErrorTransport returns a 200 with a body that errors on every read.
-type readErrorTransport struct{ err error }
+// transportWithReadError answers with a 200 whose body errors on every read.
+type transportWithReadError struct{ err error }
 
-func (t readErrorTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+func (t transportWithReadError) RoundTrip(r *http.Request) (*http.Response, error) {
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Body:       io.NopCloser(errorReader{err: t.err}),
@@ -534,11 +536,17 @@ type errorReader struct{ err error }
 
 func (e errorReader) Read(_ []byte) (int, error) { return 0, e.err }
 
-type errorTransport struct{ err error }
+// failingTransport answers every RoundTrip with the configured error.
+type failingTransport struct{ err error }
 
-func (e errorTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+func (e failingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return nil, e.err
 }
+
+// nopSleep satisfies the Sleep option in tests that do not exercise the
+// backoff path; using it instead of an inline closure makes the call sites
+// read as "no sleep, no backoff" rather than "no sleep, who knows".
+var nopSleep = func(context.Context, time.Duration) error { return nil }
 
 // New must respect a caller-supplied Timeout rather than silently overriding
 // it with the package default.
