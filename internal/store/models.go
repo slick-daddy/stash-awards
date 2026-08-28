@@ -44,18 +44,25 @@ const (
 
 // Award is one award record for one performer.
 type Award struct {
-	ID              int64  `json:"id"`
-	PerformerID     string `json:"performerId"`
-	Source          Source `json:"source"`
-	Organization    string `json:"organization"`
-	AwardName       string `json:"awardName"`
-	Category        string `json:"category,omitempty"`
-	Year            int    `json:"year"`
-	Event           string `json:"event,omitempty"`
-	Result          Result `json:"result"`
-	SourceURL       string `json:"sourceUrl,omitempty"`
-	AssociatedMovie string `json:"associatedMovie,omitempty"`
-	LastScraped     string `json:"lastScraped"`
+	ID           int64  `json:"id"`
+	PerformerID  string `json:"performerId"`
+	Source       Source `json:"source"`
+	Organization string `json:"organization"`
+	AwardName    string `json:"awardName"`
+	Category     string `json:"category,omitempty"`
+	Year         int    `json:"year"`
+	Event        string `json:"event,omitempty"`
+	Result       Result `json:"result"`
+	SourceURL    string `json:"sourceUrl,omitempty"`
+
+	// AssociatedMovie is the film or scene the award was given for; personal
+	// awards have none. The URL and year come from the same link on the source
+	// page and let the UI render "Angela 3 (2017)" as a link.
+	AssociatedMovie     string `json:"associatedMovie,omitempty"`
+	AssociatedMovieURL  string `json:"associatedMovieUrl,omitempty"`
+	AssociatedMovieYear int    `json:"associatedMovieYear,omitempty"`
+
+	LastScraped string `json:"lastScraped"`
 }
 
 // PerformerURL is a performer's resolved page on one source.

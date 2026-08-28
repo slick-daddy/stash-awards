@@ -23,11 +23,25 @@ func nullString(s string) interface{} {
 	return s
 }
 
+func nullInt(n int) interface{} {
+	if n == 0 {
+		return nil
+	}
+	return n
+}
+
 func str(ns sql.NullString) string {
 	if ns.Valid {
 		return ns.String
 	}
 	return ""
+}
+
+func num(ni sql.NullInt64) int {
+	if ni.Valid {
+		return int(ni.Int64)
+	}
+	return 0
 }
 
 // ReplaceAwards swaps out every award this performer has from source, in one
@@ -47,14 +61,17 @@ func (s *Store) ReplaceAwards(performerID string, source Source, awards []Award)
 	stmt, err := tx.Prepare(`
 		INSERT INTO awards (
 			performer_id, source, organization, award_name, category, year,
-			event, result, source_url, associated_movie, last_scraped
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			event, result, source_url, associated_movie, associated_movie_url,
+			associated_movie_year, last_scraped
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(performer_id, source, organization, award_name, year) DO UPDATE SET
 			category = excluded.category,
 			event = excluded.event,
 			result = excluded.result,
 			source_url = excluded.source_url,
 			associated_movie = excluded.associated_movie,
+			associated_movie_url = excluded.associated_movie_url,
+			associated_movie_year = excluded.associated_movie_year,
 			last_scraped = excluded.last_scraped`)
 	if err != nil {
 		return fmt.Errorf("prepare award insert: %w", err)
@@ -76,7 +93,9 @@ func (s *Store) ReplaceAwards(performerID string, source Source, awards []Award)
 		// one rather than aborting the whole sync.
 		if _, err := stmt.Exec(performerID, source, a.Organization, a.AwardName,
 			nullString(a.Category), a.Year, nullString(a.Event), result,
-			nullString(a.SourceURL), nullString(a.AssociatedMovie), lastScraped); err != nil {
+			nullString(a.SourceURL), nullString(a.AssociatedMovie),
+			nullString(a.AssociatedMovieURL), nullInt(a.AssociatedMovieYear),
+			lastScraped); err != nil {
 			return fmt.Errorf("insert award %q %d: %w", a.AwardName, a.Year, err)
 		}
 	}
@@ -88,7 +107,8 @@ func (s *Store) ReplaceAwards(performerID string, source Source, awards []Award)
 }
 
 const awardColumns = `id, performer_id, source, organization, award_name, category,
-	year, event, result, source_url, associated_movie, last_scraped`
+	year, event, result, source_url, associated_movie, associated_movie_url,
+	associated_movie_year, last_scraped`
 
 // awardOrder puts the newest awards first, then groups deterministically so the
 // UI never reorders rows between identical requests.
@@ -117,12 +137,16 @@ func scanAwards(rows *sql.Rows) ([]Award, error) {
 	var out []Award
 	for rows.Next() {
 		var a Award
-		var category, event, sourceURL, movie sql.NullString
+		var category, event, sourceURL, movie, movieURL sql.NullString
+		var movieYear sql.NullInt64
 		if err := rows.Scan(&a.ID, &a.PerformerID, &a.Source, &a.Organization, &a.AwardName,
-			&category, &a.Year, &event, &a.Result, &sourceURL, &movie, &a.LastScraped); err != nil {
+			&category, &a.Year, &event, &a.Result, &sourceURL, &movie, &movieURL,
+			&movieYear, &a.LastScraped); err != nil {
 			return nil, fmt.Errorf("scan award: %w", err)
 		}
-		a.Category, a.Event, a.SourceURL, a.AssociatedMovie = str(category), str(event), str(sourceURL), str(movie)
+		a.Category, a.Event, a.SourceURL = str(category), str(event), str(sourceURL)
+		a.AssociatedMovie, a.AssociatedMovieURL = str(movie), str(movieURL)
+		a.AssociatedMovieYear = num(movieYear)
 		out = append(out, a)
 	}
 	return out, rows.Err()

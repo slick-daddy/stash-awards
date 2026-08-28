@@ -21,6 +21,8 @@ var migrations = []string{
 		result TEXT NOT NULL DEFAULT 'won',
 		source_url TEXT,
 		associated_movie TEXT,
+		associated_movie_url TEXT,
+		associated_movie_year INTEGER,
 		last_scraped DATETIME NOT NULL,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		UNIQUE(performer_id, source, organization, award_name, year)
