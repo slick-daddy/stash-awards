@@ -281,6 +281,9 @@ export const AwardsPage: React.FC<{
   }
 
   const title = payload.performerName ?? payload.performerId;
+  const defaultSource =
+    payload.sources.find((s) => s.enabled)?.source ??
+    payload.sources[0]?.source;
 
   return (
     <div className="awards-page">
@@ -294,7 +297,7 @@ export const AwardsPage: React.FC<{
 
       {payload.warning ? <Alert variant="warning">{payload.warning}</Alert> : null}
 
-      <Tabs defaultActiveKey={payload.sources[0]?.source} id="awards-sources">
+      <Tabs defaultActiveKey={defaultSource} id="awards-sources">
         {payload.sources.map((source) => (
           <Tab
             key={source.source}

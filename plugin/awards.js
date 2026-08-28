@@ -151,7 +151,7 @@
     return /* @__PURE__ */ React.createElement(Button, { variant: "secondary", size: "sm", onClick }, /* @__PURE__ */ React.createElement(FontAwesomeIcon, { icon: FontAwesomeSolid.faArrowLeft }), " Back");
   }
   var AwardsPage = ({ match }) => {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f;
     const performerId = (_b = (_a = match == null ? void 0 : match.params) == null ? void 0 : _a.performerId) != null ? _b : "";
     const history = ReactRouterDOM.useHistory();
     const toast = useToast();
@@ -202,7 +202,8 @@
       return /* @__PURE__ */ React.createElement("div", { className: "awards-page" }, /* @__PURE__ */ React.createElement(BackButton, { onClick: () => history.push(`/performers/${performerId}`) }), /* @__PURE__ */ React.createElement(Spinner, { animation: "border", role: "status" }));
     }
     const title = (_c = payload.performerName) != null ? _c : payload.performerId;
-    return /* @__PURE__ */ React.createElement("div", { className: "awards-page" }, /* @__PURE__ */ React.createElement("div", { className: "awards-header" }, /* @__PURE__ */ React.createElement(BackButton, { onClick: () => history.push(`/performers/${performerId}`) }), /* @__PURE__ */ React.createElement("h3", { className: "awards-title" }, title), /* @__PURE__ */ React.createElement("span", { className: "awards-total" }, payload.total, " award", payload.total === 1 ? "" : "s")), payload.warning ? /* @__PURE__ */ React.createElement(Alert, { variant: "warning" }, payload.warning) : null, /* @__PURE__ */ React.createElement(Tabs, { defaultActiveKey: (_d = payload.sources[0]) == null ? void 0 : _d.source, id: "awards-sources" }, payload.sources.map((source) => /* @__PURE__ */ React.createElement(
+    const defaultSource = (_f = (_d = payload.sources.find((s) => s.enabled)) == null ? void 0 : _d.source) != null ? _f : (_e = payload.sources[0]) == null ? void 0 : _e.source;
+    return /* @__PURE__ */ React.createElement("div", { className: "awards-page" }, /* @__PURE__ */ React.createElement("div", { className: "awards-header" }, /* @__PURE__ */ React.createElement(BackButton, { onClick: () => history.push(`/performers/${performerId}`) }), /* @__PURE__ */ React.createElement("h3", { className: "awards-title" }, title), /* @__PURE__ */ React.createElement("span", { className: "awards-total" }, payload.total, " award", payload.total === 1 ? "" : "s")), payload.warning ? /* @__PURE__ */ React.createElement(Alert, { variant: "warning" }, payload.warning) : null, /* @__PURE__ */ React.createElement(Tabs, { defaultActiveKey: defaultSource, id: "awards-sources" }, payload.sources.map((source) => /* @__PURE__ */ React.createElement(
       Tab,
       {
         key: source.source,
