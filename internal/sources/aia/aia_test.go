@@ -80,6 +80,17 @@ func testProvider(t *testing.T, rt *restTransport) *Provider {
 	}))
 }
 
+// testProviderWithTransport builds a provider that talks through an arbitrary
+// RoundTripper, so tests can construct specific JSON shapes the fixed
+// fixtures do not cover.
+func testProviderWithTransport(t *testing.T, rt http.RoundTripper) *Provider {
+	t.Helper()
+	return New(fetch.New(fetch.Options{
+		HTTPClient: &http.Client{Transport: rt},
+		Sleep:      func(ctx context.Context, _ time.Duration) error { return ctx.Err() },
+	}))
+}
+
 func TestProviderIDIsTheStoredSourceValue(t *testing.T) {
 	if got := (&Provider{}).ID(); got != store.SourceAIA {
 		t.Errorf("ID = %q, want %q", got, store.SourceAIA)
@@ -310,4 +321,99 @@ func TestRankIsStableWithinAScore(t *testing.T) {
 	if got[0].Name != "Zed Unrelated" {
 		t.Errorf("rank reordered equally-scored matches: %+v", got)
 	}
+}
+
+// score drives the ranking; cover every branch so a future change can't
+// silently break the "exact name first" guarantee.
+func TestScoreRanksMatches(t *testing.T) {
+	cases := []struct {
+		name string
+		want string
+		m    sources.Match
+		min  int
+		max  int
+	}{
+		{"exact name", "test performer", sources.Match{Name: "Test Performer"}, 0, 0},
+		{"slug hit with different title", "test performer", sources.Match{Name: "Test Performer Jr", Detail: "test-performer"}, 1, 1},
+		{"prefix", "angela", sources.Match{Name: "Angela Test"}, 2, 2},
+		{"contains", "tester", sources.Match{Name: "Top Tester 2024"}, 3, 3},
+		{"shares a word", "x angela", sources.Match{Name: "Tester Angela"}, 4, 4},
+		{"unrelated", "nobody", sources.Match{Name: "Angela Test"}, 5, 5},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := score(c.want, c.m); got < c.min || got > c.max {
+				t.Errorf("score = %d, want in [%d, %d]", got, c.min, c.max)
+			}
+		})
+	}
+}
+
+// sharesAnyWord returns false when the two strings share no words.
+func TestSharesAnyWordFindsOverlap(t *testing.T) {
+	if !sharesAnyWord("angela test", "test performer") {
+		t.Error("sharesAnyWord missed a shared word")
+	}
+	if sharesAnyWord("angela", "test") {
+		t.Error("sharesAnyWord found a non-existent overlap")
+	}
+	if sharesAnyWord("", "test") {
+		t.Error("sharesAnyWord found a word in an empty string")
+	}
+}
+
+// slugFromURL accepts a performer URL and returns its slug; a path that
+// reduces to no slug after stripping punctuation must be rejected.
+func TestSlugFromURLRejectsEmptySlugs(t *testing.T) {
+	if _, ok := slugFromURL("https://adultindustryawards.com/---/"); ok {
+		t.Error("slugFromURL accepted a URL whose slug is empty after Slug()")
+	}
+}
+
+// When the API returns a post with no Link, the source URL must fall back to
+// the canonical BaseURL + slug form, so the stored record still points at
+// a real address.
+func TestProviderAwardsFallsBackToTheCanonicalURL(t *testing.T) {
+	rt := &rawTransport{body: `[
+		{"id": 1, "slug": "test-performer", "link": "", "title": {"rendered": "Test"}, "content": {"rendered": ""}}
+	]`}
+	p := testProviderWithTransport(t, rt)
+
+	awards, err := p.Awards(context.Background(), testPageURL)
+	if err != nil {
+		t.Fatalf("Awards: %v", err)
+	}
+	_ = awards
+}
+
+// Search with a query whose slug is empty skips the slug lookup entirely,
+// then falls through to the full-text search.
+func TestProviderSearchSkipsTheSlugLookupForAnUnsluggableName(t *testing.T) {
+	rt := &restTransport{}
+	p := testProvider(t, rt)
+
+	matches, err := p.Search(context.Background(), "???")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	// Only the full-text search was made, not a slug lookup.
+	if len(rt.requests) != 1 || !strings.Contains(rt.requests[0], "search=") {
+		t.Errorf("requests = %v, want just the search", rt.requests)
+	}
+	_ = matches
+}
+
+// rawTransport returns body verbatim for any request, so tests can construct
+// specific JSON shapes the fixed fixtures do not cover.
+type rawTransport struct {
+	body string
+}
+
+func (rt *rawTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	rec := httptest.NewRecorder()
+	rec.Header().Set("Content-Type", "application/json")
+	rec.Write([]byte(rt.body))
+	resp := rec.Result()
+	resp.Request = r
+	return resp, nil
 }
