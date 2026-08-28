@@ -10,8 +10,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/gokal/stash-awards/internal/ops"
-	"github.com/gokal/stash-awards/internal/protocol"
+	"github.com/slick-daddy/stash-awards/internal/ops"
+	"github.com/slick-daddy/stash-awards/internal/protocol"
 )
 
 // version is stamped by the release build (-ldflags "-X main.version=...").

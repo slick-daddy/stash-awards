@@ -16,7 +16,7 @@ import (
 
 // DefaultUserAgent identifies the plugin. IAFD blocks requests without a
 // User-Agent, and an honest one is better than impersonating a browser.
-const DefaultUserAgent = "stash-awards/1.0 (+https://github.com/gokal/stash-awards)"
+const DefaultUserAgent = "stash-awards/1.0 (+https://github.com/slick-daddy/stash-awards)"
 
 // maxBodyBytes caps how much of a response is read. IAFD performer pages are
 // around 600 KB; anything far past that is not a page this plugin can use.

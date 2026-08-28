@@ -4,7 +4,7 @@ package ops
 import (
 	"fmt"
 
-	"github.com/gokal/stash-awards/internal/protocol"
+	"github.com/slick-daddy/stash-awards/internal/protocol"
 )
 
 // Dispatch runs the operation named by the "mode" argument.
