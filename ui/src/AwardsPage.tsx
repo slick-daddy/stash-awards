@@ -212,7 +212,7 @@ export const AwardsPage: React.FC<{
 
   const [payload, setPayload] = React.useState<AwardsPayload | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
-  const [refreshing, setRefreshing] = React.useState<string | null>(null);
+  const [refreshing, setRefreshing] = React.useState<Set<string>>(new Set());
   // Bumping reload re-runs the load effect; used by the retry button.
   const [reload, setReload] = React.useState(0);
 
@@ -234,8 +234,8 @@ export const AwardsPage: React.FC<{
   }, [performerId, reload]);
 
   const refresh = async (source: SourceView) => {
-    if (refreshing) return;
-    setRefreshing(source.source);
+    if (refreshing.has(source.source)) return;
+    setRefreshing((prev) => new Set(prev).add(source.source));
     try {
       await syncSource(performerId, source.source);
       setPayload(await getAwards(performerId, { sync: false }));
@@ -243,7 +243,11 @@ export const AwardsPage: React.FC<{
     } catch (err: any) {
       toast.error(err.message ?? String(err));
     } finally {
-      setRefreshing(null);
+      setRefreshing((prev) => {
+        const next = new Set(prev);
+        next.delete(source.source);
+        return next;
+      });
     }
   };
 
@@ -302,7 +306,7 @@ export const AwardsPage: React.FC<{
             <SourcePanel
               source={source}
               onRefresh={refresh}
-              refreshing={refreshing === source.source}
+              refreshing={refreshing.has(source.source)}
             />
           </Tab>
         ))}

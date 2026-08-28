@@ -157,7 +157,7 @@
     const toast = useToast();
     const [payload, setPayload] = React.useState(null);
     const [loadError, setLoadError] = React.useState(null);
-    const [refreshing, setRefreshing] = React.useState(null);
+    const [refreshing, setRefreshing] = React.useState(/* @__PURE__ */ new Set());
     const [reload, setReload] = React.useState(0);
     React.useEffect(() => {
       if (!performerId) return;
@@ -176,8 +176,8 @@
     }, [performerId, reload]);
     const refresh = async (source) => {
       var _a2;
-      if (refreshing) return;
-      setRefreshing(source.source);
+      if (refreshing.has(source.source)) return;
+      setRefreshing((prev) => new Set(prev).add(source.source));
       try {
         await syncSource(performerId, source.source);
         setPayload(await getAwards(performerId, { sync: false }));
@@ -185,7 +185,11 @@
       } catch (err) {
         toast.error((_a2 = err.message) != null ? _a2 : String(err));
       } finally {
-        setRefreshing(null);
+        setRefreshing((prev) => {
+          const next = new Set(prev);
+          next.delete(source.source);
+          return next;
+        });
       }
     };
     if (!performerId) {
@@ -212,7 +216,7 @@
         {
           source,
           onRefresh: refresh,
-          refreshing: refreshing === source.source
+          refreshing: refreshing.has(source.source)
         }
       )
     ))));
