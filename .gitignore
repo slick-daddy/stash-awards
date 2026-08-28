@@ -1,0 +1,29 @@
+# Go build output
+/dist/
+/build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+*.out
+coverage.txt
+
+# Plugin database (created at runtime in the plugin directory)
+*.db
+*.db-shm
+*.db-wal
+
+# Frontend
+/ui/node_modules/
+/ui/build/
+*.tsbuildinfo
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
