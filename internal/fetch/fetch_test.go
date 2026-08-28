@@ -1,10 +1,13 @@
 package fetch
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -325,5 +328,237 @@ func TestParseRetryAfter(t *testing.T) {
 		if got := parseRetryAfter(tc.in); got != tc.want {
 			t.Errorf("parseRetryAfter(%q) = %v, want %v", tc.in, got, tc.want)
 		}
+	}
+}
+
+// sleepCtx is the production default and must be exercised directly: every
+// other test injects a fake sleep and never reaches it.
+func TestSleepCtxRespectsZeroAndCancellation(t *testing.T) {
+	if err := sleepCtx(context.Background(), 0); err != nil {
+		t.Errorf("zero duration err = %v, want nil", err)
+	}
+	if err := sleepCtx(context.Background(), -time.Second); err != nil {
+		t.Errorf("negative duration err = %v, want nil", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := sleepCtx(ctx, time.Second); !errors.Is(err, context.Canceled) {
+		t.Errorf("cancelled ctx err = %v, want context.Canceled", err)
+	}
+	// The happy path: a tiny positive duration must return nil after the
+	// timer fires, not block forever.
+	if err := sleepCtx(context.Background(), time.Millisecond); err != nil {
+		t.Errorf("positive duration err = %v, want nil", err)
+	}
+}
+
+// errors.Unwrap is only invoked by errors.Is/As when the chain has at least
+// two layers; the bare StatusError path doesn't need it, but the wrapped one
+// inside transientError does.
+func TestTransientErrorUnwraps(t *testing.T) {
+	base := errors.New("network down")
+	tr := &transientError{err: base}
+	if !errors.Is(tr, base) {
+		t.Error("errors.Is did not see the wrapped base error")
+	}
+	if tr.Unwrap() != base {
+		t.Error("Unwrap did not return the base error")
+	}
+}
+
+// When the context is cancelled while the gate is being entered (after the
+// sleep succeeded), enter must surface ctx.Err() rather than handing back a
+// release function the caller will then use.
+func TestGateEnterSurfacesCancelledContextAfterSleep(t *testing.T) {
+	g := &gate{delay: time.Second, last: time.Now()}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	sleep := func(context.Context, time.Duration) error { return nil }
+	if _, err := g.enter(ctx, sleep); !errors.Is(err, context.Canceled) {
+		t.Errorf("enter err = %v, want context.Canceled", err)
+	}
+}
+
+// When the sleep itself returns a non-ctx error, enter must propagate it and
+// release the gate lock.
+func TestGateEnterSurfacesSleepError(t *testing.T) {
+	g := &gate{delay: time.Second, last: time.Now()}
+	boom := errors.New("scheduler failed")
+	sleep := func(context.Context, time.Duration) error { return boom }
+	if _, err := g.enter(context.Background(), sleep); !errors.Is(err, boom) {
+		t.Errorf("enter err = %v, want the sleep error", err)
+	}
+	// The lock must have been released, so a second enter that does not
+	// need to wait (delay 0) can take it.
+	g.delay = 0
+	release, err := g.enter(context.Background(), sleep)
+	if err != nil {
+		t.Fatalf("second enter err = %v", err)
+	}
+	release()
+}
+
+// The size cap is a guard, not a retryable condition; the request must fail
+// with a plain error so the source code can treat it as a bad page.
+func TestGetRejectsOversizedResponse(t *testing.T) {
+	// maxBodyBytes+2 puts us over by one byte after the LimitReader.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(bytes.Repeat([]byte{'a'}, maxBodyBytes+2))
+	}))
+	defer srv.Close()
+
+	c, _ := testClient(t, Options{})
+	_, err := c.Get(context.Background(), "iafd", srv.URL)
+	if err == nil {
+		t.Fatal("Get accepted an oversized body")
+	}
+	if !strings.Contains(err.Error(), "more than") {
+		t.Errorf("err = %v, want a size-cap message", err)
+	}
+}
+
+// Some response writers don't populate resp.Request; the client must fall
+// back to the requested URL in that case.
+func TestGetFallsBackToRequestedURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Returning 200 with a no-Request transport simulates the edge case.
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	// Replace the transport with one that does not set Request on the
+	// response, forcing attempt to use the original URL.
+	noReqClient := &http.Client{Transport: noRequestTransport{}}
+	c := New(Options{HTTPClient: noReqClient, Sleep: func(context.Context, time.Duration) error { return nil }})
+
+	resp, err := c.Get(context.Background(), "iafd", srv.URL)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if resp.URL != srv.URL {
+		t.Errorf("URL = %q, want the requested %q", resp.URL, srv.URL)
+	}
+}
+
+type noRequestTransport struct{}
+
+func (noRequestTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	w := httptest.NewRecorder()
+	w.Write([]byte("ok"))
+	resp := w.Result()
+	resp.Request = nil
+	return resp, nil
+}
+
+// A transport error (DNS, reset connection) must come back as a transient
+// error so the retry loop kicks in.
+func TestGetWrapsTransportErrorsAsTransient(t *testing.T) {
+	boom := errors.New("dial tcp: connection refused")
+	tr := errorTransport{err: boom}
+	c := New(Options{
+		HTTPClient: &http.Client{Transport: tr},
+		Sleep:      func(context.Context, time.Duration) error { return nil },
+		MaxRetries: 1,
+	})
+	_, err := c.Get(context.Background(), "iafd", "http://example.invalid/")
+	if err == nil {
+		t.Fatal("Get succeeded, want the wrapped transport error")
+	}
+	if !errors.Is(err, boom) {
+		t.Errorf("err = %v, want it to wrap the transport error", err)
+	}
+	if !strings.Contains(err.Error(), "giving up") {
+		t.Errorf("err = %v, want a giving-up message", err)
+	}
+}
+
+// If the backoff sleep itself fails, Get must surface that failure rather
+// than swallow it and try another request.
+func TestGetSurfacesBackoffSleepError(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+
+	boom := errors.New("interrupted")
+	c := New(Options{
+		MaxRetries: 2,
+		Sleep:      func(context.Context, time.Duration) error { return boom },
+	})
+	_, err := c.Get(context.Background(), "iafd", srv.URL)
+	if !errors.Is(err, boom) {
+		t.Errorf("err = %v, want the sleep error", err)
+	}
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Errorf("made %d requests, want only the first (the sleep aborted the retry)", n)
+	}
+}
+
+// A body that errors mid-read must surface as a transient error, not as a
+// successful empty response, so the retry loop can have another go.
+func TestGetTreatsReadErrorAsTransient(t *testing.T) {
+	boom := errors.New("connection reset by peer")
+	c := New(Options{
+		HTTPClient: &http.Client{Transport: readErrorTransport{err: boom}},
+		Sleep:      func(context.Context, time.Duration) error { return nil },
+		MaxRetries: 1,
+	})
+	_, err := c.Get(context.Background(), "iafd", "http://example.invalid/")
+	if err == nil {
+		t.Fatal("Get succeeded, want a transient read error")
+	}
+	var se *StatusError
+	if errors.As(err, &se) {
+		t.Errorf("err = %v, want a transient (non-StatusError) failure", err)
+	}
+	if !errors.Is(err, boom) {
+		t.Errorf("err = %v, want it to wrap the read error", err)
+	}
+}
+
+// readErrorTransport returns a 200 with a body that errors on every read.
+type readErrorTransport struct{ err error }
+
+func (t readErrorTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(errorReader{err: t.err}),
+		Request:    r,
+		Header:     http.Header{},
+	}, nil
+}
+
+type errorReader struct{ err error }
+
+func (e errorReader) Read(_ []byte) (int, error) { return 0, e.err }
+
+type errorTransport struct{ err error }
+
+func (e errorTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	return nil, e.err
+}
+
+// New must respect a caller-supplied Timeout rather than silently overriding
+// it with the package default.
+func TestNewAppliesTimeoutWhenHTTPClientUnset(t *testing.T) {
+	c := New(Options{Timeout: 5 * time.Second})
+	if c.http.Timeout != 5*time.Second {
+		t.Errorf("timeout = %v, want 5s", c.http.Timeout)
+	}
+}
+
+// http.NewRequestWithContext can fail for a URL Go's URL parser cannot read.
+// The client must surface that as a plain error rather than a transient one,
+// since no amount of retrying will fix a malformed URL.
+func TestGetRejectsMalformedURL(t *testing.T) {
+	c, _ := testClient(t, Options{})
+	_, err := c.Get(context.Background(), "iafd", "://no-scheme")
+	if err == nil {
+		t.Fatal("Get accepted a malformed URL")
+	}
+	if !strings.Contains(err.Error(), "build request") {
+		t.Errorf("err = %v, want a build-request error", err)
 	}
 }
