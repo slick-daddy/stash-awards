@@ -1,8 +1,9 @@
 // Package config holds the plugin's settings and their defaults.
 //
-// Stash keeps plugin settings in its own configuration file and returns nothing
-// for a setting the user has never touched, and the plugin YAML has no way to
-// declare a default. Every default therefore lives here.
+// Stash keeps plugin settings in its own configuration file and renders the
+// plugin settings UI from that file with no notion of a default value. Every
+// default therefore lives here, and on a fresh install this package also
+// pushes those defaults back into Stash so the form and the runtime agree.
 package config
 
 import (
@@ -79,6 +80,12 @@ type settingsSource interface {
 	PluginSettings(ctx context.Context, pluginID string) (map[string]interface{}, error)
 }
 
+// settingsWriter is the part of the Stash client this package uses to seed
+// defaults back into Stash's saved config. Defined here so tests can stub it.
+type settingsWriter interface {
+	ConfigurePlugin(ctx context.Context, pluginID string, settings map[string]interface{}) (map[string]interface{}, error)
+}
+
 // Load reads the saved settings from Stash and layers them over the defaults. A
 // failure to reach Stash returns the defaults along with the error, so a caller
 // that would rather continue than abort can.
@@ -92,6 +99,50 @@ func Load(ctx context.Context, src settingsSource) (Settings, error) {
 		return s, err
 	}
 	return FromMap(raw), nil
+}
+
+// EnsureDefaults reads the saved settings and, when Stash has never recorded
+// any (the install-time empty map), writes the plugin's defaults back through
+// the Stash GraphQL API. The plugin's settings UI is rendered from whatever
+// Stash has stored, so without this step a fresh install shows empty fields
+// while the plugin itself applies the defaults at runtime; the user sees a
+// mismatch.
+//
+// A non-empty saved map is left alone: the user has already touched the form
+// and overwriting their choices would be hostile. A failed write is reported
+// alongside the resolved defaults so the caller can keep running, since the
+// runtime path is still correct without the seed.
+func EnsureDefaults(ctx context.Context, src settingsSource, dst settingsWriter) (Settings, error) {
+	s := Default()
+	if src == nil {
+		return s, nil
+	}
+	raw, err := src.PluginSettings(ctx, PluginID)
+	if err != nil {
+		return s, err
+	}
+	if len(raw) > 0 {
+		return FromMap(raw), nil
+	}
+	if dst == nil {
+		return s, nil
+	}
+	if _, err := dst.ConfigurePlugin(ctx, PluginID, s.asMap()); err != nil {
+		return s, err
+	}
+	return s, nil
+}
+
+// asMap is the JSON shape Stash's configurePlugin mutation expects.
+func (s Settings) asMap() map[string]interface{} {
+	return map[string]interface{}{
+		KeyAutoSync:         s.AutoSyncEnabled,
+		KeySyncIntervalDays: s.SyncIntervalDays,
+		KeyIAFDEnabled:      s.IAFDEnabled,
+		KeyAIAEnabled:       s.AIAEnabled,
+		KeyIAFDDelayMs:      s.IAFDDelayMs,
+		KeyAIADelayMs:       s.AIADelayMs,
+	}
 }
 
 // FromMap layers raw settings over the defaults, ignoring anything absent or of

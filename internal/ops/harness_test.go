@@ -33,6 +33,12 @@ type stashStub struct {
 	performers map[string]stubPerformer
 	settings   map[string]interface{}
 
+	// configuredSettings records what the plugin wrote back via the
+	// configurePlugin mutation, so a test can assert that the seeding path
+	// actually fired and with the values it expected.
+	configuredSettings []map[string]interface{}
+	configuredErr     error
+
 	// status, when set, makes every request fail with that HTTP status.
 	status int
 
@@ -93,6 +99,16 @@ func (s *stashStub) handle(w http.ResponseWriter, r *http.Request) {
 		writeData(w, map[string]interface{}{"configuration": map[string]interface{}{
 			"plugins": map[string]interface{}{config.PluginID: s.settings},
 		}})
+
+	case strings.Contains(body.Query, "configurePlugin("):
+		if s.configuredErr != nil {
+			http.Error(w, s.configuredErr.Error(), http.StatusInternalServerError)
+			return
+		}
+		input, _ := body.Variables["input"].(map[string]interface{})
+		s.configuredSettings = append(s.configuredSettings, input)
+		s.settings = input
+		writeData(w, map[string]interface{}{"configurePlugin": input})
 
 	default:
 		s.t.Errorf("unexpected query %q", body.Query)

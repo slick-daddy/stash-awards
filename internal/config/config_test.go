@@ -21,6 +21,113 @@ func (f fakeSource) PluginSettings(context.Context, string) (map[string]interfac
 	return f.settings, f.err
 }
 
+// fakeWriter records what the plugin tried to seed back into Stash. It also
+// lets a test simulate a failed configurePlugin call.
+type fakeWriter struct {
+	written map[string]interface{}
+	err     error
+}
+
+func (f *fakeWriter) ConfigurePlugin(_ context.Context, _ string, in map[string]interface{}) (map[string]interface{}, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.written = in
+	return in, nil
+}
+
+// Stash renders the plugin settings UI from whatever it has stored, so on a
+// fresh install this plugin seeds its defaults through Stash's
+// configurePlugin mutation. The Stash UI and the runtime then agree on the
+// values the user sees.
+func TestEnsureDefaultsSeedsAnEmptyStashMap(t *testing.T) {
+	src := fakeSource{settings: map[string]interface{}{}}
+	dst := &fakeWriter{}
+
+	got, err := EnsureDefaults(context.Background(), src, dst)
+	if err != nil {
+		t.Fatalf("EnsureDefaults: %v", err)
+	}
+	if got != Default() {
+		t.Errorf("settings = %+v, want the defaults", got)
+	}
+	want := map[string]interface{}{
+		KeyAutoSync:         DefaultAutoSync,
+		KeySyncIntervalDays: DefaultSyncIntervalDays,
+		KeyIAFDEnabled:      DefaultIAFDEnabled,
+		KeyAIAEnabled:       DefaultAIAEnabled,
+		KeyIAFDDelayMs:      DefaultIAFDDelayMs,
+		KeyAIADelayMs:       DefaultAIADelayMs,
+	}
+	if len(dst.written) != len(want) {
+		t.Fatalf("ConfigurePlugin saw %d keys, want %d: %+v", len(dst.written), len(want), dst.written)
+	}
+	for k, v := range want {
+		if dst.written[k] != v {
+			t.Errorf("ConfigurePlugin[%q] = %v, want %v", k, dst.written[k], v)
+		}
+	}
+}
+
+// Once the user has touched any setting, seeding would clobber their choices,
+// so EnsureDefaults must leave the saved map alone.
+func TestEnsureDefaultsLeavesAPopulatedStashMapAlone(t *testing.T) {
+	src := fakeSource{settings: map[string]interface{}{
+		KeyAutoSync:         true,
+		KeySyncIntervalDays: float64(7),
+	}}
+	dst := &fakeWriter{}
+
+	got, err := EnsureDefaults(context.Background(), src, dst)
+	if err != nil {
+		t.Fatalf("EnsureDefaults: %v", err)
+	}
+	if !got.AutoSyncEnabled || got.SyncIntervalDays != 7 {
+		t.Errorf("saved values were not applied: %+v", got)
+	}
+	if dst.written != nil {
+		t.Errorf("ConfigurePlugin should not be called when settings already exist: %+v", dst.written)
+	}
+}
+
+// A failed write must surface alongside the resolved defaults so the caller
+// can keep running with the in-process values.
+func TestEnsureDefaultsSurfacesAWriteFailure(t *testing.T) {
+	src := fakeSource{settings: map[string]interface{}{}}
+	boom := errors.New("stash is down")
+	dst := &fakeWriter{err: boom}
+
+	got, err := EnsureDefaults(context.Background(), src, dst)
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want the underlying failure", err)
+	}
+	if got != Default() {
+		t.Errorf("settings = %+v, want the defaults despite the write failure", got)
+	}
+}
+
+func TestEnsureDefaultsToleratesANilWriter(t *testing.T) {
+	src := fakeSource{settings: map[string]interface{}{}}
+
+	got, err := EnsureDefaults(context.Background(), src, nil)
+	if err != nil {
+		t.Fatalf("err = %v, want nil for a missing writer", err)
+	}
+	if got != Default() {
+		t.Errorf("settings = %+v, want the defaults", got)
+	}
+}
+
+func TestEnsureDefaultsToleratesANilSource(t *testing.T) {
+	got, err := EnsureDefaults(context.Background(), nil, &fakeWriter{})
+	if err != nil {
+		t.Fatalf("err = %v, want nil for a missing source", err)
+	}
+	if got != Default() {
+		t.Errorf("settings = %+v, want the defaults", got)
+	}
+}
+
 func TestDefaultsMatchTheSourcesOwnRecommendations(t *testing.T) {
 	d := Default()
 	if d.IAFDDelayMs != iafd.DefaultDelay {

@@ -135,9 +135,11 @@ func newRuntime(ctx context.Context, log *protocol.Log, in protocol.Input) (*run
 
 	// A settings lookup that fails is not worth abandoning the operation for: the
 	// defaults are usable, and saying so is more helpful than refusing to run.
-	settings, err := config.Load(ctx, stash)
+	// EnsureDefaults also seeds Stash on a fresh install, so the user-visible
+	// settings form and the runtime both show the intended values.
+	settings, err := config.EnsureDefaults(ctx, stash, stash)
 	if err != nil {
-		log.Warn("could not read plugin settings, using defaults: %v", err)
+		log.Warn("could not read or seed plugin settings, using defaults: %v", err)
 	}
 
 	client := fetch.New(fetch.Options{})

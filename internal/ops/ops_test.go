@@ -86,6 +86,69 @@ func TestGetSettingsLayersSavedValuesOverDefaults(t *testing.T) {
 	}
 }
 
+// A fresh install reaches Stash's configurePlugin mutation with the plugin's
+// defaults so the rendered settings form matches the runtime values.
+func TestFreshInstallSeedsStashSettings(t *testing.T) {
+	stub := newStashStub(t)
+	// stub.settings starts empty, which is what Stash returns for an
+	// untouched plugin.
+
+	out, err := stub.dispatch(t.TempDir(), protocol.Args{"mode": ModeSettings})
+	if err != nil {
+		t.Fatalf("getSettings: %v", err)
+	}
+	got, ok := out.(config.Settings)
+	if !ok {
+		t.Fatalf("getSettings returned %T", out)
+	}
+	if got != config.Default() {
+		t.Errorf("settings = %+v, want the defaults", got)
+	}
+	if len(stub.configuredSettings) != 1 {
+		t.Fatalf("ConfigurePlugin was called %d times, want exactly 1", len(stub.configuredSettings))
+	}
+	written := stub.configuredSettings[0]
+	if got, want := written[config.KeySyncIntervalDays], float64(config.DefaultSyncIntervalDays); got != want {
+		t.Errorf("ConfigurePlugin sync interval = %v, want %v", got, want)
+	}
+	if written[config.KeyAIAEnabled] != config.DefaultAIAEnabled {
+		t.Errorf("ConfigurePlugin aiaEnabled = %v, want %t", written[config.KeyAIAEnabled], config.DefaultAIAEnabled)
+	}
+}
+
+// Once the user has saved any setting, the plugin must not rewrite it.
+func TestExistingInstallDoesNotReseedStashSettings(t *testing.T) {
+	stub := newStashStub(t)
+	stub.settings = map[string]interface{}{
+		config.KeyAutoSync: true,
+	}
+
+	if _, err := stub.dispatch(t.TempDir(), protocol.Args{"mode": ModeSettings}); err != nil {
+		t.Fatalf("getSettings: %v", err)
+	}
+	if stub.configuredSettings != nil {
+		t.Errorf("ConfigurePlugin was called: %+v", stub.configuredSettings)
+	}
+}
+
+// A failed seed should not prevent the operation from running.
+func TestFailedSeedStillReportsRuntimeSettings(t *testing.T) {
+	stub := newStashStub(t)
+	stub.configuredErr = errors.New("stash refused the write")
+
+	out, err := stub.dispatch(t.TempDir(), protocol.Args{"mode": ModeSettings})
+	if err != nil {
+		t.Fatalf("getSettings: %v", err)
+	}
+	got, ok := out.(config.Settings)
+	if !ok {
+		t.Fatalf("getSettings returned %T", out)
+	}
+	if got != config.Default() {
+		t.Errorf("settings = %+v, want the defaults despite the seed failure", got)
+	}
+}
+
 // sync=false is the read-only path the UI uses when it only wants what is
 // already stored.
 func TestGetAwardsReadsStoredDataWithoutSyncing(t *testing.T) {

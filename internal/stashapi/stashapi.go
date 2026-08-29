@@ -92,8 +92,20 @@ type gqlError struct {
 	Message string `json:"message"`
 }
 
-// query runs one GraphQL document and decodes the data object into out.
+// query runs one GraphQL query and decodes the data object into out.
 func (c *Client) query(ctx context.Context, doc string, vars map[string]interface{}, out interface{}) error {
+	return c.run(ctx, doc, vars, out)
+}
+
+// mutate runs one GraphQL mutation and decodes the data object into out.
+// The doc is expected to start with the "mutation" keyword.
+func (c *Client) mutate(ctx context.Context, doc string, vars map[string]interface{}, out interface{}) error {
+	return c.run(ctx, doc, vars, out)
+}
+
+// run sends a GraphQL operation. The doc carries the operation keyword
+// (query / mutation), so this function does not need to know which one it is.
+func (c *Client) run(ctx context.Context, doc string, vars map[string]interface{}, out interface{}) error {
 	payload, err := json.Marshal(map[string]interface{}{"query": doc, "variables": vars})
 	if err != nil {
 		return fmt.Errorf("encode graphql request: %w", err)
