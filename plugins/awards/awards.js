@@ -25,8 +25,9 @@
   }
 
   const { register, React, libraries, utils } = api;
-  const { Bootstrap, ReactRouterDOM, FontAwesomeSolid } = libraries || {};
+  const { Bootstrap, ReactRouterDOM, FontAwesomeSolid, ReactFontAwesome } = libraries || {};
   const { Alert, Badge, Button, Card, Spinner } = Bootstrap || {};
+  const { FontAwesomeIcon } = ReactFontAwesome || {};
   const { useHistory } = ReactRouterDOM || {};
   const { faArrowLeft, faSyncAlt } = FontAwesomeSolid || {};
   const { StashService } = utils || {};
