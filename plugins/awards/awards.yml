@@ -1,0 +1,13 @@
+# Stash plugin manifest. The schema lives in Stash's pkg/plugin/config.go and
+# is parsed strictly, so every key here is one Stash knows. The id Stash
+# addresses the plugin by is the file name: awards.
+name: Stash Awards
+description: Adds an Awards tab to performer pages that lists nominations, wins and hall-of-fame inductions pulled live from IAFD and AdultIndustryAwards.
+version: 0.2.0
+url: https://github.com/slick-daddy/stash-awards
+
+ui:
+  javascript:
+    - awards.js
+  css:
+    - awards.css
