@@ -1,0 +1,29 @@
+/* Stash Awards plugin styles. Kept small; colours follow Stash's Bootstrap
+   theme via variant classes, so only layout needs styling here. */
+
+.awards-page {
+  margin: 0 auto;
+  padding: 1rem 1.5rem;
+}
+
+.awards-header {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.awards-title {
+  margin: 0;
+}
+
+.awards-source-actions {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.awards-nav-button {
+  margin-left: 0.25rem;
+}
