@@ -258,53 +258,91 @@
   };
 
   // src/PerformerButton.tsx
-  var { Button: Button2 } = Bootstrap;
-  function AwardsNavButton({ performerId }) {
-    var _a11, _b7, _c2, _d;
-    const history = (_b7 = (_a11 = ReactRouterDOM).useHistory) == null ? void 0 : _b7.call(_a11);
-    const navigate = (_d = (_c2 = ReactRouterDOM).useNavigate) == null ? void 0 : _d.call(_c2);
-    const go = () => {
-      const path = `/plugins/awards/${performerId}`;
-      if (history) history.push(path);
-      else if (navigate) navigate(path);
-      else window.location.assign(path);
-    };
-    return /* @__PURE__ */ React.createElement(
-      Button2,
-      {
-        variant: "secondary",
-        title: "Awards",
-        className: "awards-nav-button",
-        style: { marginRight: 8 },
-        onClick: go
-      },
-      "\u{1F3C6} Awards"
-    );
-  }
-  function getPerformerId(props) {
-    var _a11, _b7, _c2, _d, _e;
-    const fromProps = (_e = (_d = (_a11 = props == null ? void 0 : props.performer) == null ? void 0 : _a11.id) != null ? _d : (_c2 = (_b7 = props == null ? void 0 : props.match) == null ? void 0 : _b7.params) == null ? void 0 : _c2.id) != null ? _e : props == null ? void 0 : props.id;
-    if (fromProps) return fromProps;
-    const m = /\/performers?\/([^/?#]+)/.exec(window.location.pathname);
-    return m == null ? void 0 : m[1];
-  }
-  function injectAwardsButton(props, result) {
-    try {
-      const performerId = getPerformerId(props);
-      if (!performerId || !result) return result;
-      return React.createElement(
-        React.Fragment,
-        null,
-        React.createElement(AwardsNavButton, { key: "awards-button", performerId }),
-        result
-      );
-    } catch (err) {
-      console.warn("stash-awards: could not add the awards button", err);
-      return result;
+  var NAV_BUTTON_CLASS = "awards-nav-button";
+  function findNavbar() {
+    const candidates = [
+      document.querySelector(".performer-navbar"),
+      document.querySelector(".performer-details .navbar"),
+      document.querySelector(".navbar-buttons"),
+      document.querySelector("[class*='performer'] [class*='navbar']"),
+      document.querySelector("[class*='Performer'] [class*='Navbar']")
+    ];
+    for (const c of candidates) {
+      if (c && c.querySelector("button")) return c;
     }
+    const allButtons = Array.from(document.querySelectorAll("button"));
+    for (const b of allButtons) {
+      const parent = b.closest("div, nav, header");
+      if (!parent) continue;
+      const rect = parent.getBoundingClientRect();
+      if (rect.top > 200) continue;
+      if (parent.querySelectorAll("button").length >= 2) return parent;
+    }
+    return null;
+  }
+  function navigate(path) {
+    if (window.history && window.history.pushState) {
+      window.history.pushState({}, "", path);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    } else {
+      window.location.assign(path);
+    }
+  }
+  function buildButton(performerId) {
+    const existing = document.querySelector(
+      `button.${NAV_BUTTON_CLASS}`
+    );
+    if (existing) return existing;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `btn btn-secondary ${NAV_BUTTON_CLASS}`;
+    btn.title = "Awards";
+    btn.style.marginRight = "8px";
+    btn.textContent = "\u{1F3C6} Awards";
+    btn.addEventListener("click", () => navigate(`/plugins/awards/${performerId}`));
+    return btn;
+  }
+  function performerIdFromUrl() {
+    const m = /^\/performers\/([^/?#]+)/.exec(window.location.pathname);
+    return m ? decodeURIComponent(m[1]) : null;
+  }
+  function ensureButton() {
+    const performerId = performerIdFromUrl();
+    const existing = document.querySelector(
+      `button.${NAV_BUTTON_CLASS}`
+    );
+    if (!performerId) {
+      if (existing) existing.remove();
+      return;
+    }
+    const navbar = findNavbar();
+    if (!navbar) {
+      return;
+    }
+    const btn = buildButton(performerId);
+    if (btn.parentElement === navbar) return;
+    navbar.insertBefore(btn, navbar.firstChild);
+  }
+  function startAwardsButton() {
+    if (!document.body) {
+      document.addEventListener("DOMContentLoaded", startAwardsButton, {
+        once: true
+      });
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      try {
+        ensureButton();
+      } catch (err) {
+        console.warn("stash-awards: could not add the awards button", err);
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("popstate", ensureButton);
+    ensureButton();
   }
 
   // src/awards.ts
   register.route("/plugins/awards/:performerId", AwardsPage);
-  patch.after("PerformerPage", injectAwardsButton);
+  startAwardsButton();
 })();
