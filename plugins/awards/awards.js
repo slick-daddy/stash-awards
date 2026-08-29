@@ -277,8 +277,9 @@
   }
 
   // parseEntry reads one <div class="biodata"> into a single award record.
-  // Mirrors internal/sources/iafd/parse.go:parseEntry so the output matches
-  // the old Go scraper for every test fixture.
+  // The shape follows the IAFD bio-page structure (a flat run of bioheading /
+  // showyear / biodata siblings with the link as the split point between
+  // the award name and the linked movie).
   function parseEntry(node, org, year, pageUrl) {
     const award = {
       organization: org,
@@ -336,12 +337,13 @@
     return award;
   }
 
-  // textBefore walks the descendants of parent in document order and returns
-  // the concatenated text of everything that comes before stop. Mirrors the
-  // Go parser's split-on-link trick: the link is the only <a> in an entry, so
-  // everything before it is the award name and everything after it (a year
-  // like "(2015)") is metadata about the linked movie.
-  function textBefore(parent, stop) {
+  // walkText walks the descendants of parent in document order and returns
+  // the concatenated text of everything before or after stop, depending
+  // on after. Mirrors the IAFD parser's split-on-link trick: the link is
+  // the only <a> in an entry, so everything before it is the award name
+  // and everything after it (a year like "(2015)") is metadata about the
+  // linked movie.
+  function walkText(parent, stop, after) {
     const parts = [];
     let hit = false;
     const walker = document.createTreeWalker(parent, NodeFilter.SHOW_ALL);
@@ -349,28 +351,21 @@
       const node = walker.currentNode;
       if (node === stop || stop.contains(node)) {
         hit = true;
-        return parts.join("");
+        if (!after) return parts.join("");
+        continue;
       }
-      if (hit) continue;
+      if (hit !== after) continue;
       if (node.nodeType === 3 /* text */) parts.push(node.nodeValue || "");
     }
     return parts.join("");
   }
 
+  function textBefore(parent, stop) {
+    return walkText(parent, stop, false);
+  }
+
   function textAfter(parent, stop) {
-    const parts = [];
-    let hit = false;
-    const walker = document.createTreeWalker(parent, NodeFilter.SHOW_ALL);
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      if (node === stop || stop.contains(node)) {
-        hit = true;
-        continue;
-      }
-      if (!hit) continue;
-      if (node.nodeType === 3 /* text */) parts.push(node.nodeValue || "");
-    }
-    return parts.join("");
+    return walkText(parent, stop, true);
   }
 
   // groupByOrganization keeps first-appearance order, which matches the

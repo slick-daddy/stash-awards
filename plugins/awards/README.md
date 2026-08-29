@@ -2,7 +2,7 @@
 
 Adds an **Awards** tab to Stash performer pages that lists nominations, wins and hall-of-fame inductions pulled from [IAFD](https://www.iafd.com) and [AdultIndustryAwards](https://adultindustryawards.com).
 
-This is the JS-only build of the plugin. It does not scrape the upstream sites itself — the Awards page deep-links out to the relevant search URLs so the user can see the performer's awards on the source site.
+This is the JS-only build of the plugin. It resolves the Stash performer's name to IAFD, reads the awards listed on the performer's bio page, and renders them on the Awards tab. If any step fails (IAFD blocks the request, no match is found) it falls back to a deep-link so the user can still look the performer up directly.
 
 ## Files
 
