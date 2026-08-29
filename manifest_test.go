@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -158,6 +159,16 @@ func TestManifestSettingsMatchTheBackend(t *testing.T) {
 		if !strings.Contains(s.Description, "default") {
 			t.Errorf("setting %q does not tell the user its default: %q", key, s.Description)
 		}
+		switch s.Type {
+		case "BOOLEAN":
+			if !descriptionMatchesBool(s.Description, boolDefault(key)) {
+				t.Errorf("setting %q description %q does not match its default %t, so a fresh install will look broken", key, s.Description, boolDefault(key))
+			}
+		case "NUMBER":
+			if !descriptionMatchesInt(s.Description, intDefault(key)) {
+				t.Errorf("setting %q description %q does not match its default %d, so a fresh install will look broken", key, s.Description, intDefault(key))
+			}
+		}
 	}
 
 	for key := range m.Settings {
@@ -165,5 +176,62 @@ func TestManifestSettingsMatchTheBackend(t *testing.T) {
 			t.Errorf("the manifest offers %q, which the backend ignores", key)
 		}
 	}
+}
+
+func intDefault(key string) int {
+	switch key {
+	case config.KeySyncIntervalDays:
+		return config.DefaultSyncIntervalDays
+	case config.KeyIAFDDelayMs:
+		return config.DefaultIAFDDelayMs
+	case config.KeyAIADelayMs:
+		return config.DefaultAIADelayMs
+	}
+	return 0
+}
+
+func boolDefault(key string) bool {
+	switch key {
+	case config.KeyAutoSync:
+		return config.DefaultAutoSync
+	case config.KeyIAFDEnabled:
+		return config.DefaultIAFDEnabled
+	case config.KeyAIAEnabled:
+		return config.DefaultAIAEnabled
+	}
+	return false
+}
+
+// descriptionMatchesInt reports whether the prose carries want as a standalone
+// number. "uses 30 when" matches 30; "2000 ms" matches 2000. Stray digits that
+// happen to spell the value in unrelated words (e.g. "1 of 30 settings") do
+// not match, because the prose has to state the value plainly.
+func descriptionMatchesInt(desc string, want int) bool {
+	wantStr := strconv.Itoa(want)
+	for i := 0; i+len(wantStr) <= len(desc); {
+		if desc[i:i+len(wantStr)] == wantStr {
+			left := i == 0 || !isWordByte(desc[i-1])
+			right := i+len(wantStr) == len(desc) || !isWordByte(desc[i+len(wantStr)])
+			if left && right {
+				return true
+			}
+		}
+		i++
+	}
+	return false
+}
+
+// descriptionMatchesBool accepts the prose the manifest actually uses to
+// describe an on-or-off setting.
+func descriptionMatchesBool(desc string, want bool) bool {
+	low := strings.ToLower(desc)
+	if want {
+		return strings.Contains(low, "on by default") || strings.Contains(low, "enables this by default")
+	}
+	return strings.Contains(low, "off by default") || strings.Contains(low, "disables this by default")
+}
+
+func isWordByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }
 

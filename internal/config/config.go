@@ -29,12 +29,16 @@ const (
 )
 
 // Defaults. Auto-sync is off so that installing the plugin never starts network
-// traffic the user did not ask for.
+// traffic the user did not ask for. The two delays are sourced from the provider
+// packages because that is where the rate-limit reasoning lives; config just
+// re-exports the values so a manifest test can pin the whole set in one place.
 const (
 	DefaultAutoSync         = false
 	DefaultSyncIntervalDays = 30
 	DefaultIAFDEnabled      = true
 	DefaultAIAEnabled       = true
+	DefaultIAFDDelayMs      = iafd.DefaultDelay
+	DefaultAIADelayMs       = aia.DefaultDelay
 )
 
 // Bounds keep a mistyped setting from becoming a problem for the sources: a
@@ -64,8 +68,8 @@ func Default() Settings {
 		SyncIntervalDays: DefaultSyncIntervalDays,
 		IAFDEnabled:      DefaultIAFDEnabled,
 		AIAEnabled:       DefaultAIAEnabled,
-		IAFDDelayMs:      iafd.DefaultDelay,
-		AIADelayMs:       aia.DefaultDelay,
+		IAFDDelayMs:      DefaultIAFDDelayMs,
+		AIADelayMs:       DefaultAIADelayMs,
 	}
 }
 

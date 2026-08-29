@@ -44,25 +44,25 @@ ui:
 settings:
   autoSyncEnabled:
     displayName: Auto-sync
-    description: Refresh award data in the background when it comes due. default off.
+    description: Refresh award data in the background when it comes due. The plugin runs with this off by default; turn it on if you want scheduled syncs.
     type: BOOLEAN
   syncIntervalDays:
     displayName: Sync interval (days)
-    description: Days between automatic refreshes of one performer. default 30.
+    description: Days between automatic refreshes of one performer. The plugin uses 30 by default when this is left empty; clamp at 1 to 3650.
     type: NUMBER
   iafdEnabled:
     displayName: Use IAFD
-    description: Search and show awards from IAFD. default on.
+    description: Search and show awards from IAFD. The plugin enables this by default.
     type: BOOLEAN
   aiaEnabled:
     displayName: Use AdultIndustryAwards
-    description: Search and show awards from AdultIndustryAwards. default on.
+    description: Search and show awards from AdultIndustryAwards. The plugin enables this by default.
     type: BOOLEAN
   iafdDelayMs:
     displayName: IAFD delay (ms)
-    description: Minimum spacing between requests to IAFD, which rate limits rapid requests. default 2000.
+    description: Minimum spacing between requests to IAFD, which rate limits rapid requests. The plugin uses 2000 ms by default when this is left empty; clamp at 100 to 600000.
     type: NUMBER
   aiaDelayMs:
     displayName: AdultIndustryAwards delay (ms)
-    description: Minimum spacing between requests to AdultIndustryAwards. default 500.
+    description: Minimum spacing between requests to AdultIndustryAwards. The plugin uses 500 ms by default when this is left empty; clamp at 100 to 600000.
     type: NUMBER
