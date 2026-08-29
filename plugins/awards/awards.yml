@@ -11,6 +11,3 @@ ui:
     - awards.js
   css:
     - awards.css
-  csp:
-    connect-src:
-      - https://www.iafd.com

@@ -1,17 +1,29 @@
 # Stash Awards plugin
 
-Adds an **Awards** tab to Stash performer pages that lists nominations, wins and hall-of-fame inductions pulled from [IAFD](https://www.iafd.com) and [AdultIndustryAwards](https://adultindustryawards.com).
+Adds an **Awards** tab to Stash performer pages that deep-links out to [IAFD](https://www.iafd.com) and [AdultIndustryAwards](https://adultindustryawards.com) so you can see the performer's awards on the source site.
 
-This is the JS-only build of the plugin. It resolves the Stash performer's name to IAFD, reads the awards listed on the performer's bio page, and renders them on the Awards tab. If any step fails (IAFD blocks the request, no match is found) it falls back to a deep-link so the user can still look the performer up directly.
+This is a JS-only plugin with no server-side component. Cross-origin restrictions prevent live fetching of IAFD data from the browser, so the plugin provides direct search links instead.
 
 ## Files
 
-- `awards.yml` — Stash plugin manifest. The id Stash addresses the plugin by is the file name.
-- `awards.js` — UI bundle. Vanilla IIFE, no build step.
-- `awards.css` — layout for the Awards page and the navbar button.
+| File | Purpose |
+|------|---------|
+| `awards.yml` | Plugin manifest consumed by Stash |
+| `awards.js` | Vanilla JS entry point — no build step |
+| `awards.css` | Minimal layout styles |
 
-## Develop
+## How it works
 
-The plugin's source is the file Stash runs. To preview locally, link the directory into Stash's plugin path (`Settings → Plugins → Plugin Path`) and reload Stash.
+1. On any performer page the plugin injects a **Awards** button into the navbar.
+2. Clicking it navigates to `/plugins/awards/:performerId`.
+3. That page shows a **Search on IAFD** link and a **Search on AdultIndustryAwards** link pre-filled with the performer's name.
 
-To publish a new version, edit `version:` in `awards.yml` and push to `main`; `.github/workflows/deploy.yml` regenerates the source index on GitHub Pages.
+## Installation
+
+Add this source index in Stash under **Settings → Plugins → Available Plugins**:
+
+```
+https://slick-daddy.github.io/stash-awards/main/index.yml
+```
+
+Or copy `plugins/awards/` into your Stash `plugins/` directory and reload.
